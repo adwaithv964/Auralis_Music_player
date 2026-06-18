@@ -620,7 +620,8 @@ app.get("/api/youtube/resolve", wrap(async (req, res) => {
 
   // Try JioSaavn first -- works from any cloud server, no IP blocking
   try {
-    const saavn = await saavnGetAudioUrl([title, artist].filter(Boolean).join(" "));
+    // Use title only — complex multi-artist strings break Saavn matching
+    const saavn = await saavnGetAudioUrl(title);
     return res.json({ videoId: null, streamUrl: saavn.url, via: "saavn" });
   } catch (e) {
     console.warn(`[Resolve] Saavn miss for "${title}": ${e.message}`);
@@ -641,7 +642,28 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
   try {
     entry = await resolveAudioUrl(id);
   } catch (err) {
-    console.error(`[YT stream] All methods failed for ${id}:`, err.message);
+    console.warn(`[YT stream] All methods failed for ${id}: ${err.message}`);
+
+    // Last resort: get video title via YouTube oEmbed (works from any IP)
+    // then search JioSaavn — covers Indian music reliably
+    try {
+      const oEmbedRes = await fetch(
+        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      if (oEmbedRes.ok) {
+        const { title: vtitle } = await oEmbedRes.json();
+        if (vtitle) {
+          const saavn = await saavnGetAudioUrl(vtitle);
+          console.log(`[YT stream] oEmbed+Saavn fallback OK for ${id}: ${vtitle}`);
+          res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
+          return res.redirect(302, saavn.url);
+        }
+      }
+    } catch (saavnErr) {
+      console.warn(`[YT stream] oEmbed+Saavn fallback failed for ${id}:`, saavnErr.message);
+    }
+
     return res.status(500).json({ error: "Audio unavailable", detail: err.message });
   }
 
@@ -663,19 +685,24 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
 app.get("/api/artwork", wrap(async (req, res) => {
   const rawUrl = req.query.url;
   if (!rawUrl) return res.status(400).json({ error: "url required" });
-  const parsed = new URL(rawUrl);
-  const allowed = [
-    "mzstatic.com", "apple.com", "itunes.apple.com",
-    "audius.co", "theblueprint.xyz", "staked.cloud",
-    "decentralizeaudio.xyz", "open-audio-validator.com", "audiusindex.org",
-  ];
-  const ok = ["http:", "https:"].includes(parsed.protocol)
-    && allowed.some(h => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`));
-  if (!ok) return res.status(403).json({ error: "Host not allowed" });
-  const upstream = await fetch(parsed.toString());
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch (_) { return res.status(400).json({ error: "Invalid URL" }); }
+  // Only allow http/https; block private IPs to prevent SSRF
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return res.status(403).json({ error: "Protocol not allowed" });
+  }
+  const h = parsed.hostname;
+  if (/^(127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost|0\.0\.0\.0)/i.test(h)) {
+    return res.status(403).json({ error: "Private IP not allowed" });
+  }
+  // Fetch the image — accept any public HTTPS source (Audius nodes, Saavn CDN, Apple, etc.)
+  const upstream = await fetch(parsed.toString(), {
+    headers: { "User-Agent": "Mozilla/5.0", Accept: "image/*" },
+    signal: AbortSignal.timeout(8000),
+  });
   const ct = upstream.headers.get("content-type") || "image/jpeg";
-  if (!upstream.ok || !ct.startsWith("image/")) return res.status(502).json({ error: "Bad upstream" });
-  res.set({ "Content-Type": ct, "Cache-Control": "public, max-age=86400" });
+  if (!upstream.ok || !ct.startsWith("image/")) return res.status(502).json({ error: "Bad upstream image" });
+  res.set({ "Content-Type": ct, "Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*" });
   res.send(Buffer.from(await upstream.arrayBuffer()));
 }));
 
