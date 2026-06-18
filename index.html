@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auralis Music Player</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-theme="dark" data-density="comfortable">
+    <svg class="svg-sprite" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="M3 11.4 12 4l9 7.4v8.1a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5v-8.1Z" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <path d="m20 20-4.7-4.7m2.1-5.2a7.3 7.3 0 1 1-14.6 0 7.3 7.3 0 0 1 14.6 0Z" />
+      </symbol>
+      <symbol id="i-library" viewBox="0 0 24 24">
+        <path d="M4 5.5h3v14H4zM10.5 5.5h3v14h-3zM17 5.5h3v14h-3z" />
+      </symbol>
+      <symbol id="i-radio" viewBox="0 0 24 24">
+        <path d="M5 17a10 10 0 0 1 14 0M8 14a5.7 5.7 0 0 1 8 0M12 11.8h.01M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM16.5 4 7.5 8.5" />
+      </symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24">
+        <path d="M20.3 5.8a5 5 0 0 0-7.1 0L12 7l-1.2-1.2a5 5 0 0 0-7.1 7.1L12 21l8.3-8.1a5 5 0 0 0 0-7.1Z" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1h.2a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+      </symbol>
+      <symbol id="i-next" viewBox="0 0 24 24">
+        <path d="m6 6 9 6-9 6V6ZM17 6v12" />
+      </symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24">
+        <path d="m18 6-9 6 9 6V6ZM7 6v12" />
+      </symbol>
+      <symbol id="i-shuffle" viewBox="0 0 24 24">
+        <path d="M3 7h3.2c3.5 0 4.4 10 8 10H21M18 14l3 3-3 3M18 4l3 3-3 3M3 17h3.2c1.2 0 2.1-1.1 2.9-2.6M14.4 7H21" />
+      </symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24">
+        <path d="M17 2.5 21 6l-4 3.5M3 11V9a3 3 0 0 1 3-3h15M7 21.5 3 18l4-3.5M21 13v2a3 3 0 0 1-3 3H3" />
+      </symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24">
+        <path d="M5 9v6h4l5 4V5L9 9H5ZM17 9.5a4 4 0 0 1 0 5M19.5 7a7.5 7.5 0 0 1 0 10" />
+      </symbol>
+      <symbol id="i-queue" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h10" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24">
+        <path d="M12 17V4M7 9l5-5 5 5M5 20h14" />
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path d="M12 2.5 14.7 9l6.8 3-6.8 3L12 21.5 9.3 15l-6.8-3 6.8-3L12 2.5Z" />
+      </symbol>
+    </svg>
+
+    <div class="ambient-layer" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <aside class="sidebar glass-panel" aria-label="Primary">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">Auralis</span>
+        </div>
+
+        <nav class="nav-list" aria-label="Music sections">
+          <button class="nav-item active" type="button" data-view="home">
+            <svg><use href="#i-home"></use></svg>
+            <span>Home</span>
+          </button>
+          <button class="nav-item" type="button" data-view="search">
+            <svg><use href="#i-search"></use></svg>
+            <span>Search</span>
+          </button>
+          <button class="nav-item" type="button" data-view="library">
+            <svg><use href="#i-library"></use></svg>
+            <span>Library</span>
+          </button>
+          <button class="nav-item" type="button" data-view="radio">
+            <svg><use href="#i-radio"></use></svg>
+            <span>Radio</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-actions">
+          <button class="action-row" type="button" id="importButton">
+            <svg><use href="#i-upload"></use></svg>
+            <span>Import audio</span>
+          </button>
+          <button class="action-row" type="button" id="settingsButton">
+            <svg><use href="#i-settings"></use></svg>
+            <span>Preferences</span>
+          </button>
+        </div>
+
+        <section class="playlist-strip" aria-labelledby="playlistTitle">
+          <div class="section-kicker" id="playlistTitle">Playlists</div>
+          <div id="playlistList"></div>
+        </section>
+      </aside>
+
+      <main class="main-area" aria-label="Music browser">
+        <header class="topbar">
+          <div class="search-box">
+            <svg aria-hidden="true"><use href="#i-search"></use></svg>
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Search songs, artists, moods" aria-label="Search music" />
+            <div class="suggestion-popover glass-panel" id="suggestionPopover" hidden></div>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost-button" type="button" id="smartMixButton">
+              <svg><use href="#i-spark"></use></svg>
+              <span>Smart mix</span>
+            </button>
+            <button class="icon-button" type="button" id="openQueueButton" title="Queue" aria-label="Queue">
+              <svg><use href="#i-queue"></use></svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="hero-band">
+          <div class="hero-copy">
+            <p class="section-kicker">Now matched to you</p>
+            <h1 id="heroTitle">Glass room radio</h1>
+            <p id="heroMeta">A live mix shaped by your plays, saved tracks, and current mood.</p>
+          </div>
+          <div class="hero-art" id="heroArt" aria-hidden="true"></div>
+        </section>
+
+        <section class="resource-band glass-panel" aria-labelledby="apiStatusTitle">
+          <div class="resource-copy">
+            <p class="section-kicker">Database API</p>
+            <h2 id="apiStatusTitle">Offline fallback</h2>
+            <p id="apiStatusMeta">Start the local server to load catalog, resources, preferences, history, and favorites from the API.</p>
+          </div>
+          <div class="resource-list" id="resourceList"></div>
+        </section>
+
+        <section class="content-section" aria-labelledby="recommendationTitle">
+          <div class="section-header">
+            <div>
+              <p class="section-kicker">Auto suggestions</p>
+              <h2 id="recommendationTitle">Because of your plays</h2>
+            </div>
+            <button class="text-button" type="button" id="refreshSuggestions">Refresh</button>
+          </div>
+          <div class="album-grid" id="recommendationGrid"></div>
+        </section>
+
+        <section class="content-section track-section" aria-labelledby="trackListTitle">
+          <div class="section-header">
+            <div>
+              <p class="section-kicker" id="viewKicker">All music</p>
+              <h2 id="trackListTitle">Songs</h2>
+            </div>
+            <div class="filter-chips" role="group" aria-label="Mood filters">
+              <button type="button" class="chip active" data-filter="all">All</button>
+              <button type="button" class="chip" data-filter="focus">Focus</button>
+              <button type="button" class="chip" data-filter="drive">Drive</button>
+              <button type="button" class="chip" data-filter="night">Night</button>
+            </div>
+          </div>
+          <div class="track-list" id="trackList"></div>
+        </section>
+      </main>
+
+      <aside class="now-panel glass-panel" aria-label="Now playing">
+        <div class="panel-header">
+          <div>
+            <p class="section-kicker">Now playing</p>
+            <h2 id="nowTitle">Midnight Signal</h2>
+          </div>
+          <button class="icon-button" type="button" id="nowFavorite" title="Save song" aria-label="Save song">
+            <svg><use href="#i-heart"></use></svg>
+          </button>
+        </div>
+        <div class="large-cover" id="largeCover"></div>
+        <div class="now-meta">
+          <p id="nowArtist">Nova Vale</p>
+          <span id="nowAlbum">Glassworks</span>
+        </div>
+        <div class="signal-meter" id="signalMeter" aria-hidden="true"></div>
+        <div class="lyric-window" id="lyricWindow"></div>
+        <section class="queue-panel" aria-labelledby="queueTitle">
+          <div class="section-header compact">
+            <div>
+              <p class="section-kicker">Up next</p>
+              <h2 id="queueTitle">Queue</h2>
+            </div>
+          </div>
+          <div id="queueList" class="queue-list"></div>
+        </section>
+      </aside>
+
+      <footer class="player glass-panel" aria-label="Player controls">
+        <div class="mini-now">
+          <div class="mini-cover" id="miniCover" aria-hidden="true"></div>
+          <div class="mini-copy">
+            <strong id="miniTitle">Midnight Signal</strong>
+            <span id="miniArtist">Nova Vale</span>
+          </div>
+        </div>
+
+        <div class="transport">
+          <div class="transport-buttons">
+            <button class="icon-button" type="button" id="shuffleButton" title="Shuffle" aria-label="Shuffle">
+              <svg><use href="#i-shuffle"></use></svg>
+            </button>
+            <button class="icon-button" type="button" id="prevButton" title="Previous" aria-label="Previous">
+              <svg><use href="#i-prev"></use></svg>
+            </button>
+            <button class="play-button" type="button" id="playButton" title="Play" aria-label="Play">
+              <svg id="playIcon"><use href="#i-play"></use></svg>
+            </button>
+            <button class="icon-button" type="button" id="nextButton" title="Next" aria-label="Next">
+              <svg><use href="#i-next"></use></svg>
+            </button>
+            <button class="icon-button" type="button" id="repeatButton" title="Repeat" aria-label="Repeat">
+              <svg><use href="#i-repeat"></use></svg>
+            </button>
+          </div>
+          <div class="progress-line">
+            <span id="elapsedTime">0:00</span>
+            <input id="seekBar" type="range" min="0" max="1000" value="0" aria-label="Seek" />
+            <span id="durationTime">0:00</span>
+          </div>
+        </div>
+
+        <div class="volume-zone">
+          <svg aria-hidden="true"><use href="#i-volume"></use></svg>
+          <input id="volumeSlider" type="range" min="0" max="100" value="62" aria-label="Volume" />
+        </div>
+      </footer>
+    </div>
+
+    <section class="preferences-panel glass-panel" id="preferencesPanel" aria-label="Preferences" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="section-kicker">Preferences</p>
+          <h2>Personal sound</h2>
+        </div>
+        <button class="icon-button" type="button" id="closePreferences" title="Close" aria-label="Close preferences">
+          <svg><use href="#i-close"></use></svg>
+        </button>
+      </div>
+
+      <div class="preference-group">
+        <label class="pref-label" for="themeSelect">Theme</label>
+        <div class="segmented" id="themeSelect" role="group" aria-label="Theme">
+          <button type="button" data-theme-option="dark" class="active">Dark</button>
+          <button type="button" data-theme-option="light">Light</button>
+          <button type="button" data-theme-option="system">System</button>
+        </div>
+      </div>
+
+      <div class="preference-group">
+        <span class="pref-label">Accent</span>
+        <div class="swatches" id="accentSwatches" role="group" aria-label="Accent color">
+          <button type="button" class="swatch" style="--swatch: #67f0b7" data-accent="#67f0b7" aria-label="Mint"></button>
+          <button type="button" class="swatch" style="--swatch: #ff7a90" data-accent="#ff7a90" aria-label="Coral"></button>
+          <button type="button" class="swatch" style="--swatch: #7cc7ff" data-accent="#7cc7ff" aria-label="Sky"></button>
+          <button type="button" class="swatch" style="--swatch: #ffd166" data-accent="#ffd166" aria-label="Gold"></button>
+          <input type="color" id="accentPicker" value="#67f0b7" aria-label="Custom accent" />
+        </div>
+      </div>
+
+      <div class="preference-grid">
+        <label class="range-pref">
+          <span>Glass</span>
+          <input id="glassSlider" type="range" min="18" max="72" value="42" />
+        </label>
+        <label class="range-pref">
+          <span>Crossfade</span>
+          <input id="crossfadeSlider" type="range" min="0" max="12" value="4" />
+        </label>
+      </div>
+
+      <div class="preference-group">
+        <label class="pref-label" for="qualitySelect">Quality</label>
+        <select id="qualitySelect">
+          <option>Automatic</option>
+          <option>High</option>
+          <option>Very high</option>
+          <option>Lossless</option>
+        </select>
+      </div>
+
+      <div class="preference-group">
+        <label class="pref-label" for="suggestionSelect">Suggestions</label>
+        <select id="suggestionSelect">
+          <option value="balanced">Balanced</option>
+          <option value="mood">Mood match</option>
+          <option value="fresh">Fresh finds</option>
+          <option value="favorites">Favorites first</option>
+        </select>
+      </div>
+
+      <div class="toggle-list">
+        <label class="toggle-row">
+          <span>Autoplay</span>
+          <input type="checkbox" id="autoplayToggle" />
+        </label>
+        <label class="toggle-row">
+          <span>Gapless playback</span>
+          <input type="checkbox" id="gaplessToggle" />
+        </label>
+        <label class="toggle-row">
+          <span>Normalize volume</span>
+          <input type="checkbox" id="normalizeToggle" />
+        </label>
+        <label class="toggle-row">
+          <span>Private session</span>
+          <input type="checkbox" id="privateToggle" />
+        </label>
+        <label class="toggle-row">
+          <span>Reduced motion</span>
+          <input type="checkbox" id="motionToggle" />
+        </label>
+        <label class="toggle-row">
+          <span>Compact rows</span>
+          <input type="checkbox" id="compactToggle" />
+        </label>
+      </div>
+    </section>
+
+    <input id="fileInput" type="file" accept="audio/*" multiple hidden />
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,405 @@
+{
+  "tracks": [
+    {
+      "id": "midnight-signal",
+      "title": "Midnight Signal",
+      "artist": "Nova Vale",
+      "album": "Glassworks",
+      "duration": 214,
+      "genre": "Electro pop",
+      "mood": "night",
+      "energy": 74,
+      "tempo": 116,
+      "color": [
+        "#67f0b7",
+        "#7cc7ff",
+        "#111514"
+      ],
+      "freq": 196,
+      "sourceType": "generated",
+      "lyrics": [
+        "Neon on the ceiling",
+        "Static in the rain",
+        "Hold the midnight signal",
+        "Let it play again"
+      ]
+    },
+    {
+      "id": "velvet-circuit",
+      "title": "Velvet Circuit",
+      "artist": "Mira Sol",
+      "album": "Afterimage",
+      "duration": 187,
+      "genre": "R&B",
+      "mood": "night",
+      "energy": 58,
+      "tempo": 92,
+      "color": [
+        "#ff7a90",
+        "#5f6cff",
+        "#161216"
+      ],
+      "freq": 164,
+      "sourceType": "generated",
+      "lyrics": [
+        "Soft light on the wire",
+        "Velvet in the room",
+        "Every quiet corner",
+        "Moves around the tune"
+      ]
+    },
+    {
+      "id": "solar-bloom",
+      "title": "Solar Bloom",
+      "artist": "Kaito Lane",
+      "album": "Daylight Maps",
+      "duration": 233,
+      "genre": "Indie dance",
+      "mood": "drive",
+      "energy": 82,
+      "tempo": 124,
+      "color": [
+        "#ffd166",
+        "#67f0b7",
+        "#222012"
+      ],
+      "freq": 220,
+      "sourceType": "generated",
+      "lyrics": [
+        "Windows full of summer",
+        "Bassline in the street",
+        "Solar bloom is rising",
+        "Underneath our feet"
+      ]
+    },
+    {
+      "id": "rainroom",
+      "title": "Rainroom",
+      "artist": "Elian Park",
+      "album": "Quiet Machines",
+      "duration": 198,
+      "genre": "Ambient",
+      "mood": "focus",
+      "energy": 36,
+      "tempo": 74,
+      "color": [
+        "#7cc7ff",
+        "#d6f6ff",
+        "#13191d"
+      ],
+      "freq": 146,
+      "sourceType": "generated",
+      "lyrics": [
+        "A room made out of water",
+        "A lamp beside the door",
+        "The city turns to whisper",
+        "Then disappears once more"
+      ]
+    },
+    {
+      "id": "static-hearts",
+      "title": "Static Hearts",
+      "artist": "Oren Fox",
+      "album": "Arcade Weather",
+      "duration": 206,
+      "genre": "Alt rock",
+      "mood": "drive",
+      "energy": 86,
+      "tempo": 138,
+      "color": [
+        "#f25f5c",
+        "#ffe066",
+        "#181111"
+      ],
+      "freq": 246,
+      "sourceType": "generated",
+      "lyrics": [
+        "Static hearts are racing",
+        "Under every sign",
+        "Turn the speakers upward",
+        "Make the city shine"
+      ]
+    },
+    {
+      "id": "cobalt-drive",
+      "title": "Cobalt Drive",
+      "artist": "June Harbor",
+      "album": "Late Turns",
+      "duration": 221,
+      "genre": "Synthwave",
+      "mood": "drive",
+      "energy": 78,
+      "tempo": 110,
+      "color": [
+        "#3da5d9",
+        "#73e2a7",
+        "#0c1720"
+      ],
+      "freq": 174,
+      "sourceType": "generated",
+      "lyrics": [
+        "Cobalt on the dashboard",
+        "Headlights split the blue",
+        "Every exit flickers",
+        "Leading back to you"
+      ]
+    },
+    {
+      "id": "afterglow-city",
+      "title": "Afterglow City",
+      "artist": "Sable North",
+      "album": "Night Market",
+      "duration": 242,
+      "genre": "House",
+      "mood": "night",
+      "energy": 88,
+      "tempo": 126,
+      "color": [
+        "#b388ff",
+        "#67f0b7",
+        "#17121d"
+      ],
+      "freq": 208,
+      "sourceType": "generated",
+      "lyrics": [
+        "Afterglow city",
+        "Moving through the glass",
+        "Every face a rhythm",
+        "Every minute fast"
+      ]
+    },
+    {
+      "id": "low-orbit",
+      "title": "Low Orbit",
+      "artist": "Tess Arden",
+      "album": "Satellite Sleep",
+      "duration": 256,
+      "genre": "Downtempo",
+      "mood": "focus",
+      "energy": 48,
+      "tempo": 84,
+      "color": [
+        "#9ad1d4",
+        "#f7b267",
+        "#121918"
+      ],
+      "freq": 155,
+      "sourceType": "generated",
+      "lyrics": [
+        "Low orbit breathing",
+        "A circle made of sound",
+        "We move a little slower",
+        "Till our feet touch ground"
+      ]
+    },
+    {
+      "id": "warm-algorithm",
+      "title": "Warm Algorithm",
+      "artist": "Ada Voss",
+      "album": "Human Index",
+      "duration": 193,
+      "genre": "Future soul",
+      "mood": "focus",
+      "energy": 61,
+      "tempo": 98,
+      "color": [
+        "#f4a261",
+        "#2a9d8f",
+        "#19130f"
+      ],
+      "freq": 185,
+      "sourceType": "generated",
+      "lyrics": [
+        "Warm algorithm",
+        "Learning how we move",
+        "Softly counting heartbeats",
+        "Finding every groove"
+      ]
+    },
+    {
+      "id": "north-window",
+      "title": "North Window",
+      "artist": "Iris Bell",
+      "album": "Rooms",
+      "duration": 176,
+      "genre": "Acoustic",
+      "mood": "focus",
+      "energy": 34,
+      "tempo": 68,
+      "color": [
+        "#d9ed92",
+        "#99d98c",
+        "#182016"
+      ],
+      "freq": 130,
+      "sourceType": "generated",
+      "lyrics": [
+        "North window open",
+        "Morning on the floor",
+        "Let the quiet answer",
+        "What we came here for"
+      ]
+    },
+    {
+      "id": "glass-tide",
+      "title": "Glass Tide",
+      "artist": "Reef Atlas",
+      "album": "Blue Current",
+      "duration": 205,
+      "genre": "Chillwave",
+      "mood": "night",
+      "energy": 54,
+      "tempo": 88,
+      "color": [
+        "#48cae4",
+        "#ffafcc",
+        "#10151a"
+      ],
+      "freq": 175,
+      "sourceType": "generated",
+      "lyrics": [
+        "Glass tide rolling",
+        "Pink light on the shore",
+        "Every wave remembers",
+        "What the night is for"
+      ]
+    },
+    {
+      "id": "pulse-theory",
+      "title": "Pulse Theory",
+      "artist": "Nico Sun",
+      "album": "Bright Data",
+      "duration": 229,
+      "genre": "Tech house",
+      "mood": "drive",
+      "energy": 91,
+      "tempo": 128,
+      "color": [
+        "#06d6a0",
+        "#ef476f",
+        "#111918"
+      ],
+      "freq": 233,
+      "sourceType": "generated",
+      "lyrics": [
+        "Pulse theory rising",
+        "Hands above the sound",
+        "Nothing here is static",
+        "When the lights come down"
+      ]
+    }
+  ],
+  "playlists": [
+    {
+      "id": "daily-glass",
+      "name": "Daily glass",
+      "filter": "all",
+      "count": 42
+    },
+    {
+      "id": "late-night-focus",
+      "name": "Late night focus",
+      "filter": "focus",
+      "count": 18
+    },
+    {
+      "id": "drive-pulse",
+      "name": "Drive pulse",
+      "filter": "drive",
+      "count": 27
+    },
+    {
+      "id": "saved-shimmer",
+      "name": "Saved shimmer",
+      "filter": "favorites",
+      "count": 0
+    },
+    {
+      "id": "imported-files",
+      "name": "Imported files",
+      "filter": "imported",
+      "count": 0
+    }
+  ],
+  "resources": {
+    "providers": [
+      {
+        "id": "local-db",
+        "name": "Auralis Local DB",
+        "type": "catalog",
+        "status": "connected"
+      },
+      {
+        "id": "generated-preview",
+        "name": "Generated Preview Engine",
+        "type": "playback",
+        "status": "ready"
+      }
+    ],
+    "moods": [
+      "focus",
+      "drive",
+      "night"
+    ],
+    "equalizerPresets": [
+      {
+        "id": "balanced",
+        "name": "Balanced",
+        "bands": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "bass",
+        "name": "Bass lift",
+        "bands": [
+          5,
+          3,
+          0,
+          -1,
+          1
+        ]
+      },
+      {
+        "id": "clarity",
+        "name": "Clarity",
+        "bands": [
+          -1,
+          0,
+          2,
+          4,
+          3
+        ]
+      }
+    ],
+    "recommendationSignals": [
+      "recent plays",
+      "saved songs",
+      "mood",
+      "genre",
+      "tempo",
+      "energy"
+    ]
+  },
+  "preferences": {
+    "theme": "dark",
+    "accent": "#67f0b7",
+    "glass": 42,
+    "crossfade": 4,
+    "quality": "Very high",
+    "suggestions": "balanced",
+    "autoplay": true,
+    "gapless": true,
+    "normalize": true,
+    "private": false,
+    "reducedMotion": false,
+    "compact": false,
+    "volume": 62
+  },
+  "history": [],
+  "favorites": []
+}
