@@ -23,6 +23,33 @@ app.use(express.json({ limit: "1mb" }));
 // ══════════════════════════════════════════════════════════════════════
 const YTDLP_CACHE = new Map(); // videoId → { url, contentType, contentLength, expires }
 
+let YTDLP_CMD = null;
+
+async function resolveYtdlpCommand() {
+  if (YTDLP_CMD) return YTDLP_CMD;
+
+  const candidates = [
+    { cmd: "yt-dlp", args: ["--version"] },
+    { cmd: "python3", args: ["-m", "yt_dlp", "--version"] },
+    { cmd: "python", args: ["-m", "yt_dlp", "--version"] }
+  ];
+
+  for (const c of candidates) {
+    try {
+      await execFileAsync(c.cmd, c.args, { timeout: 3000 });
+      YTDLP_CMD = { cmd: c.cmd, baseArgs: c.args.slice(0, -1) };
+      console.log(`✓ Resolved yt-dlp command: ${c.cmd} ${YTDLP_CMD.baseArgs.join(" ")}`);
+      return YTDLP_CMD;
+    } catch (err) {
+      // Try next
+    }
+  }
+
+  console.warn("⚠ Could not resolve working yt-dlp command. Falling back to 'python -m yt_dlp'");
+  YTDLP_CMD = { cmd: "python", baseArgs: ["-m", "yt_dlp"] };
+  return YTDLP_CMD;
+}
+
 async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
   if (!bust) {
     const cached = YTDLP_CACHE.get(videoId);
@@ -32,9 +59,10 @@ async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
   YTDLP_CACHE.delete(videoId);
 
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const resolved = await resolveYtdlpCommand();
 
-  const { stdout } = await execFileAsync("python", [
-    "-m", "yt_dlp",
+  const { stdout } = await execFileAsync(resolved.cmd, [
+    ...resolved.baseArgs,
     "--get-url", "--get-filename",
     "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
     "--no-playlist",
