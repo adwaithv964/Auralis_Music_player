@@ -35,12 +35,15 @@ app.use(express.json({ limit: "1mb" }));
 
 // ══════════════════════════════════════════════════════════════════════
 //  YouTube audio extraction
-//  Priority: youtubei.js (Innertube) → @distube/ytdl-core → yt-dlp
+//  Root issue: YouTube blocks cloud-server IPs (429/bot-detection).
+//  Fix: route through Piped + Invidious — open-source YT proxy networks
+//  whose IPs are NOT blocked by YouTube.
+//  Priority: Piped → Invidious → youtubei.js → ytdl-core → yt-dlp
 // ══════════════════════════════════════════════════════════════════════
 
-// ── URL cache: videoId → { url, contentType, expires } ─────────────────
+// ── URL cache: videoId → { url, contentType, expires, via } ────────────
 const AUDIO_URL_CACHE = new Map();
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (CDN URLs valid ~6h)
 
 function getCachedAudio(videoId) {
   const e = AUDIO_URL_CACHE.get(videoId);
@@ -48,18 +51,97 @@ function getCachedAudio(videoId) {
   AUDIO_URL_CACHE.delete(videoId);
   return null;
 }
-function setCachedAudio(videoId, url, contentType) {
+function setCachedAudio(videoId, url, contentType, via) {
   if (AUDIO_URL_CACHE.size >= 300) {
     AUDIO_URL_CACHE.delete(AUDIO_URL_CACHE.keys().next().value);
   }
-  AUDIO_URL_CACHE.set(videoId, { url, contentType, expires: Date.now() + CACHE_TTL_MS });
+  AUDIO_URL_CACHE.set(videoId, { url, contentType, via, expires: Date.now() + CACHE_TTL_MS });
 }
 
-// ── 1. youtubei.js  — Innertube API (same protocol as official YT app) ──
+// ── 1. Piped API — open-source YT proxy, no bot-detection ──────────────
+// Piped runs its own infrastructure that fetches from YouTube on our behalf
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.adminforge.de",
+  "https://api.piped.yt",
+  "https://pipedapi.drgns.space",
+  "https://piped-api.garudalinux.org",
+];
+
+async function pipedGetAudioUrl(videoId) {
+  const errs = [];
+  for (const base of PIPED_INSTANCES) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch(`${base}/streams/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) { errs.push(`${base}: HTTP ${r.status}`); continue; }
+      const data = await r.json();
+      if (data.error) { errs.push(`${base}: ${data.error}`); continue; }
+      const streams = (data.audioStreams || [])
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const best =
+        streams.find(s => s.mimeType?.includes("audio/mp4")) ??
+        streams.find(s => s.mimeType?.includes("audio/webm")) ??
+        streams[0];
+      if (!best?.url) { errs.push(`${base}: no audio stream`); continue; }
+      const ct = (best.mimeType || "audio/mp4").split(";")[0].trim();
+      console.log(`[Piped] resolved ${videoId} via ${base} (${ct})`);
+      return { url: best.url, contentType: ct };
+    } catch (e) {
+      errs.push(`${base}: ${e.message}`);
+    }
+  }
+  throw new Error(`Piped failed (${errs.join(" | ")})`);
+}
+
+// ── 2. Invidious API — another open-source YT proxy ────────────────────
+const INVIDIOUS_INSTANCES = [
+  "https://invidious.io.lol",
+  "https://inv.nadeko.net",
+  "https://invidious.nerdvpn.de",
+  "https://yt.artemislena.eu",
+];
+
+async function invidiousGetAudioUrl(videoId) {
+  const errs = [];
+  for (const base of INVIDIOUS_INSTANCES) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch(`${base}/api/v1/videos/${videoId}?fields=adaptiveFormats,formatStreams`, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) { errs.push(`${base}: HTTP ${r.status}`); continue; }
+      const data = await r.json();
+      if (data.error) { errs.push(`${base}: ${data.error}`); continue; }
+      const formats = (data.adaptiveFormats || [])
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const best =
+        formats.find(f => f.type?.includes("audio/mp4") && !f.type?.includes("video")) ??
+        formats.find(f => f.type?.includes("audio/webm") && !f.type?.includes("video")) ??
+        formats.find(f => f.type?.startsWith("audio/"));
+      if (!best?.url) { errs.push(`${base}: no audio format`); continue; }
+      const ct = (best.type || "audio/mp4").split(";")[0].trim();
+      console.log(`[Invidious] resolved ${videoId} via ${base} (${ct})`);
+      return { url: best.url, contentType: ct };
+    } catch (e) {
+      errs.push(`${base}: ${e.message}`);
+    }
+  }
+  throw new Error(`Invidious failed (${errs.join(" | ")})`);
+}
+
+// ── 3. youtubei.js — Innertube API (direct, may be rate-limited) ────────
 let _innertubeInstance = null;
 async function getInnertube() {
   if (_innertubeInstance) return _innertubeInstance;
-  // Dynamic import — youtubei.js is an ESM-only package
   const { Innertube, UniversalCache } = await import("youtubei.js");
   _innertubeInstance = await Innertube.create({
     cache: new UniversalCache(false),
@@ -71,49 +153,36 @@ async function getInnertube() {
 
 async function innertubeGetAudioUrl(videoId) {
   const yt = await getInnertube();
-  const info = await yt.getBasicInfo(videoId, "IOS"); // IOS client skips SABR/SSAP throttling
+  const info = await yt.getBasicInfo(videoId, "IOS");
   const formats = info.streaming_data?.adaptive_formats || [];
-
-  // Prefer highest-quality audio-only m4a → webm → anything with audio
   const pick =
     formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/mp4")) ??
     formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/webm")) ??
     formats.find(f => f.has_audio && !f.has_video) ??
     formats.find(f => f.has_audio);
-
   if (!pick) throw new Error("youtubei.js: no audio format found");
-
   let audioUrl;
-  // Some formats are cipher-protected; decipher if needed
-  if (pick.url) {
-    audioUrl = pick.url;
-  } else if (pick.signature_cipher || pick.cipher) {
-    audioUrl = pick.decipher(yt.session.player);
-  } else {
-    throw new Error("youtubei.js: format has no resolvable URL");
-  }
-
-  const mimeRaw = pick.mime_type ?? "audio/mp4";
-  const contentType = mimeRaw.split(";")[0].trim();
-  return { url: audioUrl, contentType };
+  if (pick.url) audioUrl = pick.url;
+  else if (pick.signature_cipher || pick.cipher) audioUrl = pick.decipher(yt.session.player);
+  else throw new Error("youtubei.js: format URL unresolvable");
+  const ct = (pick.mime_type ?? "audio/mp4").split(";")[0].trim();
+  return { url: audioUrl, contentType: ct };
 }
 
-// ── 2. @distube/ytdl-core — Node.js fallback ───────────────────────────
+// ── 4. @distube/ytdl-core — direct Node.js scraper ─────────────────────
 const YTDL_AGENT = ytdl.createAgent([]);
 
 async function ytdlCoreGetAudioUrl(videoId) {
-  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const info  = await ytdl.getInfo(ytUrl, { agent: YTDL_AGENT });
-  const format =
+  const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`, { agent: YTDL_AGENT });
+  const fmt =
     ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "mp4" && f.hasAudio && !f.hasVideo }) ??
     ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "webm" && f.hasAudio && !f.hasVideo }) ??
     ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
-  if (!format) throw new Error("ytdl-core: no audio format found");
-  const contentType = (format.mimeType ?? "audio/mp4").split(";")[0].trim();
-  return { url: format.url, contentType };
+  if (!fmt) throw new Error("ytdl-core: no audio format found");
+  return { url: fmt.url, contentType: (fmt.mimeType ?? "audio/mp4").split(";")[0].trim() };
 }
 
-// ── 3. yt-dlp — last resort ─────────────────────────────────────────────
+// ── 5. yt-dlp — last resort ──────────────────────────────────────────────
 let YTDLP_CMD = null;
 
 async function resolveYtdlpCommand() {
@@ -155,17 +224,21 @@ async function ytdlpGetAudioUrl(videoId) {
 }
 
 /**
- * Master resolver — tries all three methods in priority order.
- * Results are cached for 4 hours to avoid repeated YouTube API hits.
+ * Master resolver — tries all five methods in priority order.
+ * Proxy-based methods (Piped/Invidious) go first since cloud server IPs
+ * are blocked by YouTube directly.
+ * Results are cached for 4 hours.
  */
 async function resolveAudioUrl(videoId) {
   const cached = getCachedAudio(videoId);
-  if (cached) return cached;
+  if (cached) { console.log(`[YT] cache hit for ${videoId} (via ${cached.via})`); return cached; }
 
   const methods = [
-    { name: "youtubei.js (Innertube)", fn: () => innertubeGetAudioUrl(videoId) },
-    { name: "@distube/ytdl-core",     fn: () => ytdlCoreGetAudioUrl(videoId)  },
-    { name: "yt-dlp",                 fn: () => ytdlpGetAudioUrl(videoId)     },
+    { name: "Piped",        fn: () => pipedGetAudioUrl(videoId)      },
+    { name: "Invidious",    fn: () => invidiousGetAudioUrl(videoId)  },
+    { name: "youtubei.js",  fn: () => innertubeGetAudioUrl(videoId)  },
+    { name: "ytdl-core",    fn: () => ytdlCoreGetAudioUrl(videoId)   },
+    { name: "yt-dlp",       fn: () => ytdlpGetAudioUrl(videoId)      },
   ];
 
   let lastErr;
@@ -848,47 +921,28 @@ app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
 }));
 
 app.get("/api/ytdlp-test", wrap(async (req, res) => {
-  const testVideoId = "MKnHHXMD3Bg";
+  const testVideoId = req.query.id || "MKnHHXMD3Bg";
 
-  // 1. Test youtubei.js (Innertube)
-  let innertubeOk = false, innertubeInfo = {}, innertubeError = "";
-  try {
-    const r = await innertubeGetAudioUrl(testVideoId);
-    innertubeOk = true;
-    innertubeInfo = { contentType: r.contentType, urlPrefix: r.url.slice(0, 60) + "…" };
-  } catch (err) { innertubeError = err.message; }
+  const test = async (name, fn) => {
+    try { const r = await fn(); return { ok: true, contentType: r.contentType, url: r.url?.slice(0, 80) + "…" }; }
+    catch (e) { return { ok: false, error: e.message.slice(0, 200) }; }
+  };
 
-  // 2. Test @distube/ytdl-core
-  let ytdlCoreOk = false, ytdlCoreInfo = {}, ytdlCoreError = "";
-  try {
-    const r = await ytdlCoreGetAudioUrl(testVideoId);
-    ytdlCoreOk = true;
-    ytdlCoreInfo = { contentType: r.contentType };
-  } catch (err) { ytdlCoreError = err.message; }
-
-  // 3. Test yt-dlp
-  const resolved = await resolveYtdlpCommand();
-  const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
-  let cookiesExists = false, cookiesSize = 0;
-  try { const s = await fs.stat(cookiesPath); cookiesExists = true; cookiesSize = s.size; } catch (_) {}
-
-  let ytdlpOk = false, ytdlpError = "", ytdlpStdout = "";
-  try {
-    const args = [...resolved.baseArgs];
-    if (cookiesExists) args.push("--cookies", cookiesPath);
-    args.push("--get-url", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist",
-      `https://www.youtube.com/watch?v=${testVideoId}`);
-    const result = await execFileAsync(resolved.cmd, args, { timeout: 15000 });
-    ytdlpStdout = result.stdout.trim().slice(0, 100);
-    ytdlpOk = true;
-  } catch (err) { ytdlpError = err.message.slice(0, 200); }
+  const [piped, invidious, innertube, ytdlCore] = await Promise.allSettled([
+    test("Piped",       () => pipedGetAudioUrl(testVideoId)),
+    test("Invidious",   () => invidiousGetAudioUrl(testVideoId)),
+    test("youtubei.js", () => innertubeGetAudioUrl(testVideoId)),
+    test("ytdl-core",   () => ytdlCoreGetAudioUrl(testVideoId)),
+  ]);
+  const get = r => r.status === "fulfilled" ? r.value : { ok: false, error: r.reason?.message };
 
   res.json({
-    ok: innertubeOk || ytdlCoreOk || ytdlpOk,
-    "1_youtubei.js": { ok: innertubeOk, info: innertubeInfo, error: innertubeError },
-    "2_ytdl-core":   { ok: ytdlCoreOk, info: ytdlCoreInfo,   error: ytdlCoreError  },
-    "3_yt-dlp":      { ok: ytdlpOk, stdout: ytdlpStdout,     error: ytdlpError, command: resolved },
-    cookies: { path: cookiesPath, exists: cookiesExists, size: cookiesSize },
+    testVideoId,
+    anyOk: [piped, invidious, innertube, ytdlCore].some(r => r.status === "fulfilled" && r.value?.ok),
+    "1_piped":       get(piped),
+    "2_invidious":   get(invidious),
+    "3_youtubei.js": get(innertube),
+    "4_ytdl-core":   get(ytdlCore),
     env: { NODE_ENV: process.env.NODE_ENV },
   });
 }));
