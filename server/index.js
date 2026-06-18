@@ -293,6 +293,41 @@ async function saavnGetAudioUrl(query) {
   }
 }
 
+/**
+ * Smart Saavn search: tries multiple query variations to improve match rate.
+ * Indian song titles from iTunes often have extra text that breaks exact Saavn search.
+ * e.g. "Parayathe Vannen (From \"Premam\")" → tries "Parayathe Vannen" as well.
+ */
+async function saavnSearch(rawQuery) {
+  if (!rawQuery) throw new Error("Saavn: empty query");
+
+  // Generate progressively simplified query variations
+  const queries = [
+    rawQuery,
+    // Remove parenthetical notes: "Song (From Movie)" → "Song"
+    rawQuery.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(),
+    // Remove after dash/colon/pipe: "Song - Official" → "Song"
+    rawQuery.replace(/\s*[-|:]\s*.+$/, "").trim(),
+    // Remove common suffixes: "Official", "Audio", "Video", "Lyric", "HD"
+    rawQuery.replace(/\b(official|audio|video|lyric|lyrics|full|song|hd|4k)\b.*/gi, "").trim(),
+    // First 3 words only (broad match)
+    rawQuery.split(/\s+/).slice(0, 3).join(" "),
+  ]
+    // Deduplicate and remove empties / too-short strings
+    .filter((q, i, arr) => q && q.length > 2 && arr.indexOf(q) === i);
+
+  let lastErr;
+  for (const q of queries) {
+    try {
+      return await saavnGetAudioUrl(q);
+    } catch (e) {
+      console.warn(`[Saavn] query "${q}" → ${e.message.slice(0, 60)}`);
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Saavn: no match for "${rawQuery}"`);
+}
+
 // ── 4. @distube/ytdl-core — direct Node.js scraper ─────────────────────
 const YTDL_AGENT = ytdl.createAgent([]);
 
@@ -629,23 +664,45 @@ function wrap(fn) {
 // ══════════════════════════════════════════════════════════════════════
 
 
-// ── YouTube: stream full audio ──────────────────────────────────────────
-// -- YouTube: resolve title+artist -> stream URL (JioSaavn first)
+// ── YouTube: resolve title+artist → stream URL ───────────────────────────
+// Priority: JioSaavn (multi-query) → oEmbed title + Saavn → YouTube stream
 app.get("/api/youtube/resolve", wrap(async (req, res) => {
   const { title, artist } = req.query;
   if (!title) return res.status(400).json({ error: "title required" });
 
-  // Try JioSaavn first -- works from any cloud server, no IP blocking
+  // Pass 1: Saavn with multiple query variations of the iTunes title
   try {
-    // Use title only — complex multi-artist strings break Saavn matching
-    const saavn = await saavnGetAudioUrl(title);
+    const saavn = await saavnSearch(title);
     return res.json({ videoId: null, streamUrl: saavn.url, via: "saavn" });
   } catch (e) {
-    console.warn(`[Resolve] Saavn miss for "${title}": ${e.message}`);
+    console.warn(`[Resolve] Saavn miss (pass 1) for "${title}": ${e.message}`);
   }
 
+  // YouTube search to get the videoId we'll use for stream fallback
   const videoId = await searchYouTube(title, artist || "");
   if (!videoId) return res.status(404).json({ error: "No result found" });
+
+  // Pass 2: Get the actual YouTube video title via oEmbed, then try Saavn again.
+  // The YouTube title is often a cleaner match (e.g. "Parayathe Vannen | Premam")
+  // whereas the iTunes title might have different phrasing.
+  try {
+    const oe = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (oe.ok) {
+      const { title: ytTitle } = await oe.json();
+      if (ytTitle) {
+        const saavn = await saavnSearch(ytTitle);
+        console.log(`[Resolve] oEmbed+Saavn ✓ for "${title}" → "${ytTitle}"`);
+        return res.json({ videoId: null, streamUrl: saavn.url, via: "saavn_oembed" });
+      }
+    }
+  } catch (e) {
+    console.warn(`[Resolve] oEmbed+Saavn miss for "${title}": ${e.message}`);
+  }
+
+  // Final fallback: YouTube stream endpoint
   res.json({ videoId, streamUrl: `/api/youtube/stream?id=${videoId}`, via: "youtube" });
 }));
 
@@ -684,21 +741,62 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return res.status(500).json({ error: "Audio unavailable", detail: err.message });
   }
 
-  // Redirect the browser directly to the audio source.
-  // Key insight: server-side proxying fails because Render's IP is blocked
-  // by YouTube CDN. A redirect lets the browser fetch directly from
-  // Cobalt/Piped/Invidious tunnels which have their own IPs.
-  // HTML audio elements follow redirects natively, including Range requests for seeking.
-  res.set({
-    "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "no-store",
-  });
-  // Ensure URL is a plain string (youtubei.js can return URL objects)
   const redirectUrl = String(entry.url || "");
   if (!redirectUrl.startsWith("http")) {
     return res.status(500).json({ error: "Resolved audio URL is invalid" });
   }
-  return res.redirect(302, redirectUrl);
+
+  // YouTube CDN URLs (googlevideo.com / videoplayback) are IP-bound to the
+  // server's IP address. Redirecting to the browser fails because the browser's
+  // IP doesn't match. We must proxy these through the server.
+  //
+  // Cobalt / Piped / Invidious / Saavn CDN: public URLs → safe to redirect.
+  const isYtCdn = /googlevideo\.com|youtube\.com.*videoplayback/.test(redirectUrl);
+
+  if (!isYtCdn) {
+    res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
+    return res.redirect(302, redirectUrl);
+  }
+
+  // ── Server-side proxy for IP-bound YouTube CDN URLs ────────────────────
+  try {
+    const upstream = await fetch(redirectUrl, {
+      headers: {
+        ...(req.headers.range ? { Range: req.headers.range } : {}),
+        "User-Agent":  "com.google.android.youtube/17.36.4 (Linux; U; Android 12) gzip",
+        "Referer":     "https://www.youtube.com/",
+        "Origin":      "https://www.youtube.com",
+      },
+    });
+
+    const status = upstream.status; // 200 or 206
+    const hdr = {};
+    const ct  = upstream.headers.get("content-type");
+    const cl  = upstream.headers.get("content-length");
+    const cr  = upstream.headers.get("content-range");
+    if (ct) hdr["Content-Type"]  = ct;
+    if (cl) hdr["Content-Length"] = cl;
+    if (cr) hdr["Content-Range"]  = cr;
+    hdr["Accept-Ranges"]            = "bytes";
+    hdr["Cache-Control"]            = "no-store";
+    hdr["Access-Control-Allow-Origin"] = "*";
+
+    res.writeHead(status, hdr);
+
+    const reader = upstream.body.getReader();
+    const pump = async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) { res.end(); return; }
+        if (!res.write(value)) await new Promise(r => res.once("drain", r));
+      }
+    };
+    return pump().catch(() => { try { res.end(); } catch (_) {} });
+  } catch (proxyErr) {
+    console.warn(`[YT stream] YouTube CDN proxy failed for ${id}: ${proxyErr.message}`);
+    // Last resort: try redirect anyway (maybe a browser without IP binding issues)
+    return res.redirect(302, redirectUrl);
+  }
 }));
 
 
