@@ -9,6 +9,7 @@ const os       = require("os");
 const path     = require("path");
 const fs       = require("fs").promises;
 const ytdl     = require("@distube/ytdl-core");
+let Innertube; // loaded lazily (ESM)
 
 // Append common Python user-bin and virtualenv paths to system PATH for subprocesses
 const homeDir = os.homedir();
@@ -33,88 +34,153 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 // ══════════════════════════════════════════════════════════════════════
-//  YouTube audio extraction — @distube/ytdl-core (primary, pure Node.js)
-//  No cookies, no external binaries, works on Render/Vercel natively.
+//  YouTube audio extraction
+//  Priority: youtubei.js (Innertube) → @distube/ytdl-core → yt-dlp
 // ══════════════════════════════════════════════════════════════════════
 
-// Agent options with a realistic browser-like User-Agent
-const YTDL_AGENT = ytdl.createAgent([], {
-  localAddress: undefined,
-});
+// ── URL cache: videoId → { url, contentType, expires } ─────────────────
+const AUDIO_URL_CACHE = new Map();
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-/**
- * Get the best audio-only format from ytdl-core.
- * Returns { url, contentType, mimeType, itag } or throws.
- */
-async function ytdlGetAudioInfo(videoId) {
-  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const info = await ytdl.getInfo(ytUrl, { agent: YTDL_AGENT });
-
-  // Prefer m4a → webm → any audio
-  const format =
-    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "mp4" && f.hasAudio && !f.hasVideo }) ||
-    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "webm" && f.hasAudio && !f.hasVideo }) ||
-    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
-
-  if (!format) throw new Error("No audio format found by ytdl-core");
-
-  const mimeType = format.mimeType || "audio/mp4";
-  // Normalise MIME: strip codec params for the Content-Type header
-  const contentType = mimeType.split(";")[0].trim() || "audio/mp4";
-
-  return { url: format.url, contentType, mimeType, itag: format.itag, approxDurationMs: format.approxDurationMs };
+function getCachedAudio(videoId) {
+  const e = AUDIO_URL_CACHE.get(videoId);
+  if (e && e.expires > Date.now()) return e;
+  AUDIO_URL_CACHE.delete(videoId);
+  return null;
+}
+function setCachedAudio(videoId, url, contentType) {
+  if (AUDIO_URL_CACHE.size >= 300) {
+    AUDIO_URL_CACHE.delete(AUDIO_URL_CACHE.keys().next().value);
+  }
+  AUDIO_URL_CACHE.set(videoId, { url, contentType, expires: Date.now() + CACHE_TTL_MS });
 }
 
-// ── yt-dlp fallback (only used if ytdl-core completely fails) ──────────
+// ── 1. youtubei.js  — Innertube API (same protocol as official YT app) ──
+let _innertubeInstance = null;
+async function getInnertube() {
+  if (_innertubeInstance) return _innertubeInstance;
+  // Dynamic import — youtubei.js is an ESM-only package
+  const { Innertube, UniversalCache } = await import("youtubei.js");
+  _innertubeInstance = await Innertube.create({
+    cache: new UniversalCache(false),
+    generate_session_locally: true,
+  });
+  console.log("✓ youtubei.js Innertube client initialised");
+  return _innertubeInstance;
+}
+
+async function innertubeGetAudioUrl(videoId) {
+  const yt = await getInnertube();
+  const info = await yt.getBasicInfo(videoId, "IOS"); // IOS client skips SABR/SSAP throttling
+  const formats = info.streaming_data?.adaptive_formats || [];
+
+  // Prefer highest-quality audio-only m4a → webm → anything with audio
+  const pick =
+    formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/mp4")) ??
+    formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/webm")) ??
+    formats.find(f => f.has_audio && !f.has_video) ??
+    formats.find(f => f.has_audio);
+
+  if (!pick) throw new Error("youtubei.js: no audio format found");
+
+  let audioUrl;
+  // Some formats are cipher-protected; decipher if needed
+  if (pick.url) {
+    audioUrl = pick.url;
+  } else if (pick.signature_cipher || pick.cipher) {
+    audioUrl = pick.decipher(yt.session.player);
+  } else {
+    throw new Error("youtubei.js: format has no resolvable URL");
+  }
+
+  const mimeRaw = pick.mime_type ?? "audio/mp4";
+  const contentType = mimeRaw.split(";")[0].trim();
+  return { url: audioUrl, contentType };
+}
+
+// ── 2. @distube/ytdl-core — Node.js fallback ───────────────────────────
+const YTDL_AGENT = ytdl.createAgent([]);
+
+async function ytdlCoreGetAudioUrl(videoId) {
+  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const info  = await ytdl.getInfo(ytUrl, { agent: YTDL_AGENT });
+  const format =
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "mp4" && f.hasAudio && !f.hasVideo }) ??
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "webm" && f.hasAudio && !f.hasVideo }) ??
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
+  if (!format) throw new Error("ytdl-core: no audio format found");
+  const contentType = (format.mimeType ?? "audio/mp4").split(";")[0].trim();
+  return { url: format.url, contentType };
+}
+
+// ── 3. yt-dlp — last resort ─────────────────────────────────────────────
 let YTDLP_CMD = null;
 
 async function resolveYtdlpCommand() {
   if (YTDLP_CMD) return YTDLP_CMD;
-
   const candidates = [
-    { cmd: "yt-dlp", args: ["--version"] },
+    { cmd: "yt-dlp",  args: ["--version"] },
     { cmd: "python3", args: ["-m", "yt_dlp", "--version"] },
-    { cmd: "python", args: ["-m", "yt_dlp", "--version"] },
+    { cmd: "python",  args: ["-m", "yt_dlp", "--version"] },
   ];
-
   for (const c of candidates) {
     try {
       await execFileAsync(c.cmd, c.args, { timeout: 3000 });
       YTDLP_CMD = { cmd: c.cmd, baseArgs: c.args.slice(0, -1) };
-      console.log(`✓ Resolved yt-dlp command: ${c.cmd}`);
+      console.log(`✓ yt-dlp resolved: ${c.cmd}`);
       return YTDLP_CMD;
     } catch (_) {}
   }
-
   YTDLP_CMD = { cmd: "python", baseArgs: ["-m", "yt_dlp"] };
   return YTDLP_CMD;
 }
 
 async function ytdlpGetAudioUrl(videoId) {
-  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const resolved = await resolveYtdlpCommand();
   const args = [...resolved.baseArgs];
-
   const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
-  try {
-    await fs.access(cookiesPath);
-    args.push("--cookies", cookiesPath);
-  } catch (_) {}
-
+  try { await fs.access(cookiesPath); args.push("--cookies", cookiesPath); } catch (_) {}
   args.push(
     "--get-url", "--get-filename",
     "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-    "--no-playlist",
-    "-o", "%(ext)s",
-    ytUrl
+    "--no-playlist", "-o", "%(ext)s",
+    `https://www.youtube.com/watch?v=${videoId}`
   );
-
   const { stdout } = await execFileAsync(resolved.cmd, args, { timeout: 25000, maxBuffer: 1024 * 1024 });
-  const lines = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
+  const lines    = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
   const audioUrl = lines.find(l => l.startsWith("http")) || "";
   const ext      = lines.find(l => !l.startsWith("http")) || "m4a";
   if (!audioUrl) throw new Error("yt-dlp returned no URL");
   return { url: audioUrl, contentType: ext === "webm" ? "audio/webm" : "audio/mp4" };
+}
+
+/**
+ * Master resolver — tries all three methods in priority order.
+ * Results are cached for 4 hours to avoid repeated YouTube API hits.
+ */
+async function resolveAudioUrl(videoId) {
+  const cached = getCachedAudio(videoId);
+  if (cached) return cached;
+
+  const methods = [
+    { name: "youtubei.js (Innertube)", fn: () => innertubeGetAudioUrl(videoId) },
+    { name: "@distube/ytdl-core",     fn: () => ytdlCoreGetAudioUrl(videoId)  },
+    { name: "yt-dlp",                 fn: () => ytdlpGetAudioUrl(videoId)     },
+  ];
+
+  let lastErr;
+  for (const { name, fn } of methods) {
+    try {
+      const result = await fn();
+      setCachedAudio(videoId, result.url, result.contentType);
+      console.log(`[YT] resolved ${videoId} via ${name}`);
+      return result;
+    } catch (err) {
+      console.warn(`[YT] ${name} failed for ${videoId}: ${err.message}`);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 
@@ -371,75 +437,44 @@ app.get("/api/youtube/resolve", wrap(async (req, res) => {
   res.json({ videoId, streamUrl: `/api/youtube/stream?id=${videoId}` });
 }));
 
-// ── YouTube: stream full audio (ytdl-core primary, yt-dlp fallback) ──
+// ── YouTube: stream full audio ──────────────────────────────────────────
 app.get("/api/youtube/stream", wrap(async (req, res) => {
   const { id } = req.query;
   if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
     return res.status(400).json({ error: "Invalid videoId" });
   }
 
-  const range = req.headers.range;
-  const ytUrl = `https://www.youtube.com/watch?v=${id}`;
-
-  // ── Primary: @distube/ytdl-core (pure Node.js, no cookies needed) ────
-  let usedYtdlCore = false;
+  // Resolve audio URL via priority chain (cached after first hit)
+  let entry;
   try {
-    const info = await ytdlGetAudioInfo(id);
-
-    // If the client sent a Range header, fetch the slice from YouTube's CDN
-    const upstreamHeaders = { "User-Agent": "Mozilla/5.0" };
-    if (range) upstreamHeaders["Range"] = range;
-
-    const upstream = await fetch(info.url, { headers: upstreamHeaders });
-
-    if (upstream.ok || upstream.status === 206) {
-      const ct = upstream.headers.get("content-type") || info.contentType;
-      const cl = upstream.headers.get("content-length");
-      const cr = upstream.headers.get("content-range");
-
-      res.status(upstream.status || 200);
-      res.set({
-        "Content-Type":                ct,
-        "Accept-Ranges":               "bytes",
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control":               "no-store",
-        ...(cl ? { "Content-Length": cl } : {}),
-        ...(cr ? { "Content-Range":  cr } : {}),
-      });
-
-      const reader = upstream.body.getReader();
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const ok = res.write(value);
-          if (!ok) await new Promise(r => res.once("drain", r));
-        }
-        res.end();
-      };
-      usedYtdlCore = true;
-      return pump().catch(() => { try { res.end(); } catch (_) {} });
-    }
-    // Upstream CDN returned an error; fall through to yt-dlp
-    console.warn(`[YT stream] ytdl-core CDN fetch ${upstream.status} for ${id}, trying yt-dlp fallback`);
+    entry = await resolveAudioUrl(id);
   } catch (err) {
-    console.warn(`[YT stream] ytdl-core failed for ${id}: ${err.message}, trying yt-dlp fallback`);
+    console.error(`[YT stream] All methods failed for ${id}:`, err.message);
+    return res.status(500).json({ error: "Audio extraction failed", detail: err.message });
   }
 
-  if (usedYtdlCore) return; // already responded
+  // Proxy the audio bytes to the browser (supports Range requests for seeking)
+  const streamFromUrl = async (audioUrl, contentType, isRetry = false) => {
+    const range   = req.headers.range;
+    const headers = { "User-Agent": "Mozilla/5.0" };
+    if (range) headers["Range"] = range;
 
-  // ── Fallback: yt-dlp ─────────────────────────────────────────────────
-  try {
-    const entry = await ytdlpGetAudioUrl(id);
-    const upstreamHeaders = { "User-Agent": "Mozilla/5.0" };
-    if (range) upstreamHeaders["Range"] = range;
+    const upstream = await fetch(audioUrl, { headers });
 
-    const upstream = await fetch(entry.url, { headers: upstreamHeaders });
-    if (!upstream.ok && upstream.status !== 206) {
-      return res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
+    // CDN URL has expired — evict cache and re-resolve once
+    if (upstream.status === 403 && !isRetry) {
+      console.warn(`[YT stream] 403 for ${id}, refreshing URL cache…`);
+      AUDIO_URL_CACHE.delete(id);
+      const fresh = await resolveAudioUrl(id);
+      return streamFromUrl(fresh.url, fresh.contentType, true);
     }
 
-    const ct = upstream.headers.get("content-type") || entry.contentType;
+    if (!upstream.ok && upstream.status !== 206) {
+      if (!res.headersSent) res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
+      return;
+    }
+
+    const ct = upstream.headers.get("content-type") || contentType || "audio/mp4";
     const cl = upstream.headers.get("content-length");
     const cr = upstream.headers.get("content-range");
 
@@ -463,11 +498,10 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
       }
       res.end();
     };
-    return pump().catch(() => { try { res.end(); } catch (_) {} });
-  } catch (err) {
-    console.error(`[YT stream] All methods failed for ${id}:`, err.message);
-    if (!res.headersSent) res.status(500).json({ error: "Audio extraction failed", detail: err.message });
-  }
+    pump().catch(() => { try { res.end(); } catch (_) {} });
+  };
+
+  await streamFromUrl(entry.url, entry.contentType);
 }));
 
 
@@ -816,48 +850,44 @@ app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
 app.get("/api/ytdlp-test", wrap(async (req, res) => {
   const testVideoId = "MKnHHXMD3Bg";
 
-  // Test ytdl-core (primary)
-  let ytdlCoreOk = false;
-  let ytdlCoreInfo = {};
-  let ytdlCoreError = "";
+  // 1. Test youtubei.js (Innertube)
+  let innertubeOk = false, innertubeInfo = {}, innertubeError = "";
   try {
-    const info = await ytdlGetAudioInfo(testVideoId);
-    ytdlCoreOk = true;
-    ytdlCoreInfo = { contentType: info.contentType, itag: info.itag };
-  } catch (err) {
-    ytdlCoreError = err.message;
-  }
+    const r = await innertubeGetAudioUrl(testVideoId);
+    innertubeOk = true;
+    innertubeInfo = { contentType: r.contentType, urlPrefix: r.url.slice(0, 60) + "…" };
+  } catch (err) { innertubeError = err.message; }
 
-  // Test yt-dlp (fallback)
+  // 2. Test @distube/ytdl-core
+  let ytdlCoreOk = false, ytdlCoreInfo = {}, ytdlCoreError = "";
+  try {
+    const r = await ytdlCoreGetAudioUrl(testVideoId);
+    ytdlCoreOk = true;
+    ytdlCoreInfo = { contentType: r.contentType };
+  } catch (err) { ytdlCoreError = err.message; }
+
+  // 3. Test yt-dlp
   const resolved = await resolveYtdlpCommand();
   const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
-  let cookiesExists = false;
-  let cookiesSize = 0;
-  try {
-    const stat = await fs.stat(cookiesPath);
-    cookiesExists = true;
-    cookiesSize = stat.size;
-  } catch (_) {}
+  let cookiesExists = false, cookiesSize = 0;
+  try { const s = await fs.stat(cookiesPath); cookiesExists = true; cookiesSize = s.size; } catch (_) {}
 
-  let ytdlpOk = false;
-  let ytdlpError = "";
-  let ytdlpStdout = "";
+  let ytdlpOk = false, ytdlpError = "", ytdlpStdout = "";
   try {
     const args = [...resolved.baseArgs];
     if (cookiesExists) args.push("--cookies", cookiesPath);
     args.push("--get-url", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist",
       `https://www.youtube.com/watch?v=${testVideoId}`);
     const result = await execFileAsync(resolved.cmd, args, { timeout: 15000 });
-    ytdlpStdout = result.stdout.trim();
+    ytdlpStdout = result.stdout.trim().slice(0, 100);
     ytdlpOk = true;
-  } catch (err) {
-    ytdlpError = err.message;
-  }
+  } catch (err) { ytdlpError = err.message.slice(0, 200); }
 
   res.json({
-    ok: ytdlCoreOk || ytdlpOk,
-    primary: { method: "@distube/ytdl-core", ok: ytdlCoreOk, info: ytdlCoreInfo, error: ytdlCoreError },
-    fallback: { method: "yt-dlp", ok: ytdlpOk, command: resolved, stdout: ytdlpStdout.slice(0, 200), error: ytdlpError },
+    ok: innertubeOk || ytdlCoreOk || ytdlpOk,
+    "1_youtubei.js": { ok: innertubeOk, info: innertubeInfo, error: innertubeError },
+    "2_ytdl-core":   { ok: ytdlCoreOk, info: ytdlCoreInfo,   error: ytdlCoreError  },
+    "3_yt-dlp":      { ok: ytdlpOk, stdout: ytdlpStdout,     error: ytdlpError, command: resolved },
     cookies: { path: cookiesPath, exists: cookiesExists, size: cookiesSize },
     env: { NODE_ENV: process.env.NODE_ENV },
   });
