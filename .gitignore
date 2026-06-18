@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+cookies.txt
 
 node_modules/
 dist/

@@ -73,15 +73,27 @@ async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
 
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const resolved = await resolveYtdlpCommand();
+  const args = [...resolved.baseArgs];
 
-  const { stdout } = await execFileAsync(resolved.cmd, [
-    ...resolved.baseArgs,
+  // Try to locate and use a cookies file (essential to bypass YouTube's bot-detection / CAPTCHA on cloud platforms like Render)
+  const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
+  try {
+    await fs.access(cookiesPath);
+    args.push("--cookies", cookiesPath);
+    console.log(`[yt-dlp] Using cookies file: ${cookiesPath}`);
+  } catch (err) {
+    // cookies file not found or inaccessible, proceed without it
+  }
+
+  args.push(
     "--get-url", "--get-filename",
     "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
     "--no-playlist",
     "-o", "%(ext)s",
-    ytUrl,
-  ], { timeout: 25000, maxBuffer: 1024 * 1024 });
+    ytUrl
+  );
+
+  const { stdout } = await execFileAsync(resolved.cmd, args, { timeout: 25000, maxBuffer: 1024 * 1024 });
 
   const lines = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
   const audioUrl = lines.find(l => l.startsWith("http")) || "";
