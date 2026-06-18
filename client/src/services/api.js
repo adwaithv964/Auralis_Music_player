@@ -23,7 +23,7 @@ export const api = {
       term:     term || '',
       language: language || 'malayalam',
       page:     String(page),
-      limit:    '36',
+      limit:    '50',   // enough for 7 sections × 10 tracks = 70 (server dedup handles rest)
       ...(mood ? { mood } : {}),
     });
     const res = await fetch(`/api/external/search?${params}`);

@@ -6,9 +6,10 @@ const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 
-const Track    = require("./models/Track");
-const Playlist = require("./models/Playlist");
-const User     = require("./models/User");
+const Track    = require('./models/Track');
+const Playlist = require('./models/Playlist');
+const User     = require('./models/User');
+const { fetchTrending } = require('./trendingService');
 
 const port     = process.env.PORT || 4173;
 const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/auralis";
@@ -217,7 +218,7 @@ async function fetchItunes(term, language, limit = 25) {
 }
 
 async function fetchItunesMultiSeed(seeds, language, limit) {
-  const picked = seeds.slice(0, 4);
+  const picked = seeds.slice(0, 6);   // 6 seeds × up to 25 tracks = 150 candidates
   const batches = await Promise.allSettled(
     picked.map(s => fetchItunes(s, language, Math.ceil(limit / picked.length) + 5))
   );
@@ -425,14 +426,16 @@ app.get("/api/external/search", wrap(async (req, res) => {
     seeds    = [ms[k], ms[k] + " 2024", ms.hi];
   } else {
     const base     = SEEDS[rawLang] || SEEDS.all;
-    // Pick NON-OVERLAPPING 4-seed chunks per page (no rotation overlap)
-    const chunkSize = 4;
+    // Pick NON-OVERLAPPING 6-seed chunks per page (no rotation overlap)
+    const chunkSize = 6;
     const startIdx  = (page * chunkSize) % base.length;
     seeds = [
       base[(startIdx + 0) % base.length],
       base[(startIdx + 1) % base.length],
       base[(startIdx + 2) % base.length],
       base[(startIdx + 3) % base.length],
+      base[(startIdx + 4) % base.length],
+      base[(startIdx + 5) % base.length],
     ];
   }
 
@@ -464,6 +467,23 @@ app.get("/api/external/search", wrap(async (req, res) => {
     .map(({ _dedupKey, ...t }) => t);
 
   res.json({ language: rawLang, mood, page, tracks });
+}));
+
+// ── Real Trending Charts ─────────────────────────────────────
+app.get("/api/trending", wrap(async (req, res) => {
+  const language = String(req.query.language || 'malayalam').toLowerCase();
+  try {
+    const data = await fetchTrending(language);
+    res.json(data);
+  } catch (e) {
+    console.error('[Trending] fetch error:', e.message);
+    res.status(503).json({
+      error: 'Trending data unavailable',
+      trending: [], viral: [], movieTracks: [],
+      newReleases: [], topCharts: [],
+      lastUpdated: null,
+    });
+  }
 }));
 
 // ── Bootstrap ───────────────────────────────────────────────

@@ -17,8 +17,12 @@ export function artProxy(url) {
 }
 
 // ─── Track guards ─────────────────────────────────────────────
-/** True if the track has a playable audio URL */
-export const trackHasAudio = (t) => !!(t?.previewUrl);
+/** True if the track has a playable audio URL OR can be resolved on demand */
+export const trackHasAudio = (t) =>
+  !!(t?.previewUrl) ||               // has direct URL
+  t?.sourceType === 'itunes' ||       // iTunes → resolve YouTube on demand
+  t?.sourceType === 'audius' ||       // Audius full track
+  !!(t?.title && t?.artist);          // has enough info to resolve
 
 /** True if the track is a full-length song (not a 30s preview) */
 export const isFullSong = (t) => t?.isFull === true || t?.sourceType === 'audius';

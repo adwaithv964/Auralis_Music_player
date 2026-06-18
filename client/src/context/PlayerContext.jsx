@@ -135,15 +135,24 @@ export function PlayerProvider({ children }) {
       return;
     }
 
-    // Non-iTunes (Audius / already full) → direct play
-    if (track.sourceType !== 'itunes') {
+    // Has a working previewUrl AND it's not an expired iTunes URL →  direct play
+    const hasWorkingUrl = !!(track.previewUrl) && track.sourceType !== 'itunes';
+    if (hasWorkingUrl) {
       setCurrentTrack(track);
       setTimeout(() => play(), 30);
       pushHistory(track);
       return;
     }
 
-    // iTunes track → show loading, resolve full YouTube URL, then play
+    // Audius / local with stable URL → direct play
+    if ((track.sourceType === 'audius' || track.sourceType === 'local') && track.previewUrl) {
+      setCurrentTrack(track);
+      setTimeout(() => play(), 30);
+      pushHistory(track);
+      return;
+    }
+
+    // iTunes track OR history snapshot (no previewUrl) → resolve fresh YouTube stream
     pause();
     setCurrentTrack({ ...track, previewUrl: '', ytLoading: true });
     setResolvingId(track.id);
@@ -153,11 +162,12 @@ export function PlayerProvider({ children }) {
       if (yt?.streamUrl) {
         const fullTrack = {
           ...track,
-          previewUrl: yt.streamUrl,
-          isFull:     true,
-          ytResolved: true,
-          videoId:    yt.videoId,
-          lyrics:     ['Full track via YouTube', track.artist, track.album],
+          previewUrl:  yt.streamUrl,
+          isFull:      true,
+          ytResolved:  true,
+          videoId:     yt.videoId,
+          sourceType:  'itunes',
+          lyrics:      ['Full track via YouTube', track.artist, track.album],
         };
         resolvedCache.current.set(track.id, fullTrack);
         setCurrentTrack(fullTrack);
