@@ -765,6 +765,68 @@ app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
   res.json({ playlist: playlistJSON(playlist) });
 }));
 
+app.get("/api/ytdlp-test", wrap(async (req, res) => {
+  const resolved = await resolveYtdlpCommand();
+  const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
+  let cookiesExists = false;
+  let cookiesSize = 0;
+  try {
+    const stat = await fs.stat(cookiesPath);
+    cookiesExists = true;
+    cookiesSize = stat.size;
+  } catch (err) {}
+
+  const testVideoId = "MKnHHXMD3Bg";
+  const ytUrl = `https://www.youtube.com/watch?v=${testVideoId}`;
+  const args = [...resolved.baseArgs];
+  if (cookiesExists) {
+    args.push("--cookies", cookiesPath);
+  }
+  args.push(
+    "--get-url", "--get-filename",
+    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+    "--no-playlist",
+    ytUrl
+  );
+
+  let success = false;
+  let stdout = "";
+  let stderr = "";
+  let errorMsg = "";
+
+  try {
+    const result = await execFileAsync(resolved.cmd, args, { timeout: 15000 });
+    stdout = result.stdout;
+    stderr = result.stderr;
+    success = true;
+  } catch (err) {
+    success = false;
+    errorMsg = err.message;
+    stdout = err.stdout || "";
+    stderr = err.stderr || "";
+  }
+
+  res.json({
+    ok: success,
+    resolvedCommand: resolved,
+    cookies: {
+      path: cookiesPath,
+      exists: cookiesExists,
+      size: cookiesSize
+    },
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: process.env.NODE_ENV
+    },
+    test: {
+      videoId: testVideoId,
+      stdout: stdout.trim(),
+      stderr: stderr.trim(),
+      error: errorMsg
+    }
+  });
+}));
+
 app.use("/api/{*path}", (_req, res) => res.status(404).json({ error: "Not found" }));
 
 // ══════════════════════════════════════════════════════════════════════
