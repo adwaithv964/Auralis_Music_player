@@ -41,9 +41,9 @@ app.use(express.json({ limit: "1mb" }));
 //  Priority: Piped → Invidious → youtubei.js → ytdl-core → yt-dlp
 // ══════════════════════════════════════════════════════════════════════
 
-// ── URL cache: videoId → { url, contentType, expires, via } ────────────
+// ── URL cache: videoId → { url, contentType, via, expires } ────────────
 const AUDIO_URL_CACHE = new Map();
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (CDN URLs valid ~6h)
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min — safe for Cobalt tunnels + Piped/CDN URLs
 
 function getCachedAudio(videoId) {
   const e = AUDIO_URL_CACHE.get(videoId);
@@ -56,6 +56,44 @@ function setCachedAudio(videoId, url, contentType, via) {
     AUDIO_URL_CACHE.delete(AUDIO_URL_CACHE.keys().next().value);
   }
   AUDIO_URL_CACHE.set(videoId, { url, contentType, via, expires: Date.now() + CACHE_TTL_MS });
+}
+
+// ── 1. Cobalt.tools API — cloud-server friendly, no IP blocking ─────────
+// cobalt proxies YouTube on behalf of our server using rotating infrastructure
+async function cobaltGetAudioUrl(videoId) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await fetch("https://api.cobalt.tools/", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0",
+      },
+      body: JSON.stringify({
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        downloadMode: "audio",
+        audioFormat: "best",
+        quality: "best",
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) {
+      const txt = await r.text().catch(() => "");
+      throw new Error(`Cobalt HTTP ${r.status}: ${txt.slice(0, 80)}`);
+    }
+    const data = await r.json();
+    if (!data.url || data.status === "error") {
+      throw new Error(`Cobalt: ${data.error?.code || data.text || JSON.stringify(data).slice(0, 80)}`);
+    }
+    console.log(`[Cobalt] ✓ ${videoId} (${data.status})`);
+    // Cobalt returns either an audio/mpeg stream or tunnel — treat as audio/mpeg
+    return { url: data.url, contentType: "audio/mpeg" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── 1. Piped API — open-source YT proxy, no bot-detection ──────────────
@@ -234,11 +272,12 @@ async function resolveAudioUrl(videoId) {
   if (cached) { console.log(`[YT] cache hit for ${videoId} (via ${cached.via})`); return cached; }
 
   const methods = [
-    { name: "Piped",        fn: () => pipedGetAudioUrl(videoId)      },
-    { name: "Invidious",    fn: () => invidiousGetAudioUrl(videoId)  },
-    { name: "youtubei.js",  fn: () => innertubeGetAudioUrl(videoId)  },
-    { name: "ytdl-core",    fn: () => ytdlCoreGetAudioUrl(videoId)   },
-    { name: "yt-dlp",       fn: () => ytdlpGetAudioUrl(videoId)      },
+    { name: "Cobalt",     fn: () => cobaltGetAudioUrl(videoId)    },
+    { name: "Piped",      fn: () => pipedGetAudioUrl(videoId)     },
+    { name: "Invidious",  fn: () => invidiousGetAudioUrl(videoId) },
+    { name: "youtubei",   fn: () => innertubeGetAudioUrl(videoId) },
+    { name: "ytdl-core",  fn: () => ytdlCoreGetAudioUrl(videoId)  },
+    { name: "yt-dlp",     fn: () => ytdlpGetAudioUrl(videoId)     },
   ];
 
   let lastErr;
@@ -517,64 +556,24 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return res.status(400).json({ error: "Invalid videoId" });
   }
 
-  // Resolve audio URL via priority chain (cached after first hit)
   let entry;
   try {
     entry = await resolveAudioUrl(id);
   } catch (err) {
     console.error(`[YT stream] All methods failed for ${id}:`, err.message);
-    return res.status(500).json({ error: "Audio extraction failed", detail: err.message });
+    return res.status(500).json({ error: "Audio unavailable", detail: err.message });
   }
 
-  // Proxy the audio bytes to the browser (supports Range requests for seeking)
-  const streamFromUrl = async (audioUrl, contentType, isRetry = false) => {
-    const range   = req.headers.range;
-    const headers = { "User-Agent": "Mozilla/5.0" };
-    if (range) headers["Range"] = range;
-
-    const upstream = await fetch(audioUrl, { headers });
-
-    // CDN URL has expired — evict cache and re-resolve once
-    if (upstream.status === 403 && !isRetry) {
-      console.warn(`[YT stream] 403 for ${id}, refreshing URL cache…`);
-      AUDIO_URL_CACHE.delete(id);
-      const fresh = await resolveAudioUrl(id);
-      return streamFromUrl(fresh.url, fresh.contentType, true);
-    }
-
-    if (!upstream.ok && upstream.status !== 206) {
-      if (!res.headersSent) res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
-      return;
-    }
-
-    const ct = upstream.headers.get("content-type") || contentType || "audio/mp4";
-    const cl = upstream.headers.get("content-length");
-    const cr = upstream.headers.get("content-range");
-
-    res.status(upstream.status || 200);
-    res.set({
-      "Content-Type":                ct,
-      "Accept-Ranges":               "bytes",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control":               "no-store",
-      ...(cl ? { "Content-Length": cl } : {}),
-      ...(cr ? { "Content-Range":  cr } : {}),
-    });
-
-    const reader = upstream.body.getReader();
-    const pump = async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const ok = res.write(value);
-        if (!ok) await new Promise(r => res.once("drain", r));
-      }
-      res.end();
-    };
-    pump().catch(() => { try { res.end(); } catch (_) {} });
-  };
-
-  await streamFromUrl(entry.url, entry.contentType);
+  // Redirect the browser directly to the audio source.
+  // Key insight: server-side proxying fails because Render's IP is blocked
+  // by YouTube CDN. A redirect lets the browser fetch directly from
+  // Cobalt/Piped/Invidious tunnels which have their own IPs.
+  // HTML audio elements follow redirects natively, including Range requests for seeking.
+  res.set({
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+  });
+  return res.redirect(302, entry.url);
 }));
 
 
@@ -923,26 +922,28 @@ app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
 app.get("/api/ytdlp-test", wrap(async (req, res) => {
   const testVideoId = req.query.id || "MKnHHXMD3Bg";
 
-  const test = async (name, fn) => {
+  const test = async (fn) => {
     try { const r = await fn(); return { ok: true, contentType: r.contentType, url: r.url?.slice(0, 80) + "…" }; }
     catch (e) { return { ok: false, error: e.message.slice(0, 200) }; }
   };
 
-  const [piped, invidious, innertube, ytdlCore] = await Promise.allSettled([
-    test("Piped",       () => pipedGetAudioUrl(testVideoId)),
-    test("Invidious",   () => invidiousGetAudioUrl(testVideoId)),
-    test("youtubei.js", () => innertubeGetAudioUrl(testVideoId)),
-    test("ytdl-core",   () => ytdlCoreGetAudioUrl(testVideoId)),
+  const [cobalt, piped, invidious, innertube, ytdlCore] = await Promise.allSettled([
+    test(() => cobaltGetAudioUrl(testVideoId)),
+    test(() => pipedGetAudioUrl(testVideoId)),
+    test(() => invidiousGetAudioUrl(testVideoId)),
+    test(() => innertubeGetAudioUrl(testVideoId)),
+    test(() => ytdlCoreGetAudioUrl(testVideoId)),
   ]);
   const get = r => r.status === "fulfilled" ? r.value : { ok: false, error: r.reason?.message };
 
   res.json({
     testVideoId,
-    anyOk: [piped, invidious, innertube, ytdlCore].some(r => r.status === "fulfilled" && r.value?.ok),
-    "1_piped":       get(piped),
-    "2_invidious":   get(invidious),
-    "3_youtubei.js": get(innertube),
-    "4_ytdl-core":   get(ytdlCore),
+    anyOk: [cobalt, piped, invidious, innertube, ytdlCore].some(r => r.status === "fulfilled" && r.value?.ok),
+    "1_cobalt":      get(cobalt),
+    "2_piped":       get(piped),
+    "3_invidious":   get(invidious),
+    "4_youtubei.js": get(innertube),
+    "5_ytdl-core":   get(ytdlCore),
     env: { NODE_ENV: process.env.NODE_ENV },
   });
 }));
