@@ -265,70 +265,57 @@ async function innertubeGetAudioUrl(videoId) {
 }
 
 // ── 4. JioSaavn — reliable for Indian content ────────────────────────────
-// Works from any cloud server, no IP blocking, supports Ma/Ta/Hi/En.
-// Three sources tried in order; EACH has its own AbortController (5 s).
-// Key fix: previously one shared AbortController aborted all 3 sources
-// when source A (saavn.dev) timed out.
+// Four sources tried; each has its OWN AbortController with a 5s timeout.
+// CRITICAL FIX: the old code used ONE shared AbortController — when
+// source A (saavn.dev) timed out, it aborted sources B, C, D too.
 
-// DES-ECB decrypt for JioSaavn encrypted_media_url
+// DES-ECB decrypt for JioSaavn encrypted_media_url (base64-encoded)
 const { createDecipheriv } = require("crypto");
 function decryptSaavnUrl(encryptedUrl) {
   try {
-    const key      = Buffer.from("38346591");                // 8-byte DES key
-    const decipher = createDecipheriv("des-ecb", key, "");   // ECB — no IV
+    const key      = Buffer.from("38346591");              // 8-byte DES key
+    const decipher = createDecipheriv("des-ecb", key, ""); // ECB has no IV
     decipher.setAutoPadding(true);
     const decoded  = Buffer.from(encryptedUrl, "base64");
     const plain    = Buffer.concat([decipher.update(decoded), decipher.final()])
                        .toString("utf8").replace(/\0/g, "");
-    // Upgrade quality in the URL
     return plain
       .replace("http://", "https://")
-      .replace("_96.", "_320.")
-      .replace("_160.", "_320.")
-      .replace(".mp3", ".mp4");
-  } catch (_) {
-    return "";
-  }
+      .replace(/_96\./, "_320.")
+      .replace(/_160\./, "_320.")
+      .replace(/\.mp3$/, ".mp4");
+  } catch (_) { return ""; }
 }
 
-// Fetch with per-call timeout (ms). Returns null on error.
-async function fetchJson(url, opts = {}, ms = 5000) {
+// Helper: fetch JSON with its own 5-second timeout; returns null on failure.
+async function saavnFetch(url, opts = {}) {
   const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
+  const timer = setTimeout(() => ctrl.abort(), 5000);
   try {
     const r = await fetch(url, { ...opts, signal: ctrl.signal });
     if (!r.ok) return null;
     return await r.json();
-  } catch (_) {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  } catch (_) { return null; } finally { clearTimeout(timer); }
 }
 
 async function saavnGetAudioUrl(query) {
   const q = encodeURIComponent(query);
 
-  // ── Source A: saavn.dev community API (pre-decrypted 320kbps URLs) ──────
-  {
-    const data = await fetchJson(
-      `https://saavn.dev/api/search/songs?query=${q}&limit=5`,
-      { headers: { Accept: "application/json" } },
-      5000
-    );
-    const song = data?.data?.results?.[0];
-    const urls = song?.downloadUrl || [];
-    const best = urls.find(u => u.quality === "320kbps")
-              ?? urls.find(u => u.quality === "160kbps")
-              ?? urls.at(-1);
-    if (best?.url) {
-      console.log(`[Saavn/dev] ✓ "${song.name}" for "${query}"`);
-      return { url: best.url, contentType: "audio/mpeg" };
-    }
-    console.warn(`[Saavn/dev] miss for "${query}" (data=${data ? 'ok' : 'null'})`);
+  // Source A: saavn.dev (pre-decrypted 320kbps URLs) ─────────────────────
+  const dataA = await saavnFetch(
+    `https://saavn.dev/api/search/songs?query=${q}&limit=5`,
+    { headers: { Accept: "application/json" } }
+  );
+  const songA = dataA?.data?.results?.[0];
+  const urlsA = songA?.downloadUrl || [];
+  const bestA = urlsA.find(u => u.quality === "320kbps") ?? urlsA.find(u => u.quality === "160kbps") ?? urlsA.at(-1);
+  if (bestA?.url) {
+    console.log(`[Saavn/dev] ✓ "${songA.name}" for "${query}"`);
+    return { url: bestA.url, contentType: "audio/mpeg" };
   }
+  console.warn(`[Saavn/dev] miss for "${query}" (data=${dataA ? 'ok-no-url' : 'null'})`);
 
-  // ── Source B: JioSaavn official app search API (used by Saavn apps) ─────
+  // Source B: JioSaavn official search API (jiosaavn.com/api.php) ─────────
   {
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5000);
@@ -340,10 +327,10 @@ async function saavnGetAudioUrl(query) {
       clearTimeout(timer);
       if (r.ok) {
         const text = await r.text();
-        // JioSaavn sometimes returns JSONP like: /**/cb({...})
-        const jsonText = text.trim().replace(/^[^{\[]*/, "").replace(/[^}\]]*$/, "") || "{}";
-        const data = JSON.parse(jsonText);
-        const songs = data?.results || [];
+        // strip possible JSONP wrapper
+        const jsonStr = text.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}";
+        const data    = JSON.parse(jsonStr);
+        const songs   = Array.isArray(data?.results) ? data.results : [];
         for (const s of songs) {
           const enc = s?.more_info?.encrypted_media_url;
           if (!enc) continue;
@@ -353,38 +340,29 @@ async function saavnGetAudioUrl(query) {
             return { url, contentType: "audio/mp4" };
           }
         }
-        console.warn(`[Saavn/jiosaavn] no usable song (${songs.length} results) for "${query}"`);
+        console.warn(`[Saavn/jiosaavn] ${songs.length} results but no usable URL for "${query}"`);
       } else {
         console.warn(`[Saavn/jiosaavn] HTTP ${r.status} for "${query}"`);
       }
-    } catch (e) {
-      clearTimeout(timer);
-      console.warn(`[Saavn/jiosaavn] ${e.message.slice(0, 60)}`);
-    }
+    } catch (e) { clearTimeout(timer); console.warn(`[Saavn/jiosaavn] ${e.message.slice(0,60)}`); }
   }
 
-  // ── Source C: saavn.dev songs search (alternate path) ───────────────────
-  {
-    const data = await fetchJson(
-      `https://saavn.dev/api/songs/search?query=${q}&limit=5`,
-      { headers: { Accept: "application/json" } },
-      5000
-    );
-    const songs = data?.data?.results ?? data?.data ?? [];
-    const song  = Array.isArray(songs) ? songs[0] : null;
-    const urls  = song?.downloadUrl || [];
-    const best  = urls.find(u => u.quality === "320kbps")
-               ?? urls.find(u => u.quality === "160kbps")
-               ?? urls.at(-1);
-    if (best?.url) {
-      console.log(`[Saavn/alt] ✓ "${song.name}" for "${query}"`);
-      return { url: best.url, contentType: "audio/mpeg" };
-    }
-    console.warn(`[Saavn/alt] miss for "${query}"`);
+  // Source C: saavn.dev songs/search alternate path ─────────────────────
+  const dataC = await saavnFetch(
+    `https://saavn.dev/api/songs/search?query=${q}&limit=5`,
+    { headers: { Accept: "application/json" } }
+  );
+  const songsC = dataC?.data?.results ?? (Array.isArray(dataC?.data) ? dataC.data : []);
+  const songC  = songsC?.[0];
+  const urlsC  = songC?.downloadUrl || [];
+  const bestC  = urlsC.find(u => u.quality === "320kbps") ?? urlsC.find(u => u.quality === "160kbps") ?? urlsC.at(-1);
+  if (bestC?.url) {
+    console.log(`[Saavn/alt] ✓ "${songC.name}" for "${query}"`);
+    return { url: bestC.url, contentType: "audio/mpeg" };
   }
+  console.warn(`[Saavn/alt] miss for "${query}"`);
 
-  // ── Source D: JioSaavn autocomplete + song details ───────────────────────
-  // autocomplete gives song IDs → fetch song details → encrypted URL
+  // Source D: JioSaavn autocomplete → song details ──────────────────────
   {
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
@@ -395,36 +373,68 @@ async function saavnGetAudioUrl(query) {
       );
       if (acR.ok) {
         const acText = await acR.text();
-        const acJson = JSON.parse(acText.trim().replace(/^[^{\[]*/, "").replace(/[^}\]]*$/, "") || "{}");
+        const acJson = JSON.parse(acText.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}");
         const songId = acJson?.songs?.data?.[0]?.id;
         if (songId) {
-          const songR = await fetch(
-            `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0%3F_marker%3D0&_format=json&pids=${songId}`,
+          const sR = await fetch(
+            `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&pids=${songId}`,
             { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, signal: ctrl.signal }
           );
           clearTimeout(timer);
-          if (songR.ok) {
-            const sdText = await songR.text();
-            const sdJson = JSON.parse(sdText.trim().replace(/^[^{\[]*/, "").replace(/[^}\]]*$/, "") || "{}");
-            const songData = sdJson?.[songId];
-            const enc = songData?.more_info?.encrypted_media_url;
+          if (sR.ok) {
+            const sText = await sR.text();
+            const sJson = JSON.parse(sText.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}");
+            const sd    = sJson?.[songId];
+            const enc   = sd?.more_info?.encrypted_media_url;
             if (enc) {
               const url = decryptSaavnUrl(enc);
               if (url.startsWith("http")) {
-                console.log(`[Saavn/autocomplete] ✓ "${songData?.song}" for "${query}"`);
+                console.log(`[Saavn/autocomplete] ✓ "${sd?.song}" for "${query}"`);
                 return { url, contentType: "audio/mp4" };
               }
             }
           }
-        }
+        } else { clearTimeout(timer); }
       } else { clearTimeout(timer); }
-    } catch (e) {
-      clearTimeout(timer);
-      console.warn(`[Saavn/autocomplete] ${e.message.slice(0, 60)}`);
-    }
+    } catch (e) { clearTimeout(timer); console.warn(`[Saavn/autocomplete] ${e.message.slice(0,60)}`); }
   }
 
-  throw new Error(`Saavn: all sources failed for "${query}"`);
+  throw new Error(`Saavn: all 4 sources failed for "${query}"`);
+}
+
+/**
+ * Smart Saavn search: tries multiple query variations to improve match rate.
+ * Indian song titles from iTunes often have extra text that breaks exact Saavn search.
+ * e.g. "Parayathe Vannen (From \"Premam\")" → tries "Parayathe Vannen" as well.
+ */
+async function saavnSearch(rawQuery) {
+  if (!rawQuery) throw new Error("Saavn: empty query");
+
+  // Generate progressively simplified query variations
+  const queries = [
+    rawQuery,
+    // Remove parenthetical notes: "Song (From Movie)" → "Song"
+    rawQuery.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(),
+    // Remove after dash/colon/pipe: "Song - Official" → "Song"
+    rawQuery.replace(/\s*[-|:]\s*.+$/, "").trim(),
+    // Remove common suffixes: "Official", "Audio", "Video", "Lyric", "HD"
+    rawQuery.replace(/\b(official|audio|video|lyric|lyrics|full|song|hd|4k)\b.*/gi, "").trim(),
+    // First 3 words only (broad match)
+    rawQuery.split(/\s+/).slice(0, 3).join(" "),
+  ]
+    // Deduplicate and remove empties / too-short strings
+    .filter((q, i, arr) => q && q.length > 2 && arr.indexOf(q) === i);
+
+  let lastErr;
+  for (const q of queries) {
+    try {
+      return await saavnGetAudioUrl(q);
+    } catch (e) {
+      console.warn(`[Saavn] query "${q}" → ${e.message.slice(0, 60)}`);
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Saavn: no match for "${rawQuery}"`);
 }
 
 // ── 4. @distube/ytdl-core — direct Node.js scraper ─────────────────────
@@ -508,10 +518,9 @@ async function resolveAudioUrl(videoId) {
   for (const { name, fn } of methods) {
     try {
       const result = await fn();
-      const withVia = { ...result, via: name };
       setCachedAudio(videoId, result.url, result.contentType, name);
       console.log(`[YT] resolved ${videoId} via ${name}`);
-      return withVia;
+      return { ...result, via: name }; // include via for stream endpoint routing
     } catch (err) {
       console.warn(`[YT] ${name} failed for ${videoId}: ${err.message}`);
       lastErr = err;
@@ -841,16 +850,16 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return res.status(500).json({ error: "Audio unavailable", detail: err.message });
   }
 
-  // ── ytdl-core: pipe stream directly — avoids expired-URL / 403 issues ──
-  // ytdl().pipe() re-fetches from YouTube in real time using the server's IP,
-  // so there's no race between URL extraction and CDN delivery.
+  // ytdl-core: pipe audio stream directly from YouTube.
+  // This avoids the expired-URL / 403 problem because ytdl re-fetches
+  // in real time from inside the server process (same IP as the request).
   if (entry.via === "ytdl-core") {
     res.set({
-      "Content-Type":              entry.contentType || "audio/mp4",
-      "Accept-Ranges":             "bytes",
+      "Content-Type":               entry.contentType || "audio/mp4",
+      "Accept-Ranges":              "bytes",
+      "Transfer-Encoding":          "chunked",
       "Access-Control-Allow-Origin": "*",
-      "Cache-Control":             "no-store",
-      "Transfer-Encoding":         "chunked",
+      "Cache-Control":              "no-store",
     });
     const ytStream = ytdl(`https://www.youtube.com/watch?v=${id}`, {
       filter: "audioonly",
@@ -866,8 +875,8 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return;
   }
 
-  // ── All other sources: plain 302 redirect ─────────────────────────────
-  // (Cobalt/Piped/Invidious/Saavn CDN URLs are public and not IP-bound)
+  // All other sources (Cobalt / Piped / Invidious / Saavn CDN):
+  // plain 302 redirect — these URLs are public and not IP-bound.
   const redirectUrl = String(entry.url || "");
   if (!redirectUrl.startsWith("http")) {
     return res.status(500).json({ error: "Resolved audio URL is invalid" });
@@ -875,3 +884,395 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
   res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
   return res.redirect(302, redirectUrl);
 }));
+
+
+
+// ── Artwork proxy ──────────────────────────────────────────────────────
+app.get("/api/artwork", wrap(async (req, res) => {
+  const rawUrl = req.query.url;
+  if (!rawUrl) return res.status(400).json({ error: "url required" });
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch (_) { return res.status(400).json({ error: "Invalid URL" }); }
+  // Only allow http/https; block private IPs to prevent SSRF
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return res.status(403).json({ error: "Protocol not allowed" });
+  }
+  const h = parsed.hostname;
+  if (/^(127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost|0\.0\.0\.0)/i.test(h)) {
+    return res.status(403).json({ error: "Private IP not allowed" });
+  }
+  // Fetch the image — accept any public HTTPS source (Audius nodes, Saavn CDN, Apple, etc.)
+  const upstream = await fetch(parsed.toString(), {
+    headers: { "User-Agent": "Mozilla/5.0", Accept: "image/*" },
+    signal: AbortSignal.timeout(8000),
+  });
+  const ct = upstream.headers.get("content-type") || "image/jpeg";
+  if (!upstream.ok || !ct.startsWith("image/")) return res.status(502).json({ error: "Bad upstream image" });
+  res.set({ "Content-Type": ct, "Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*" });
+  res.send(Buffer.from(await upstream.arrayBuffer()));
+}));
+
+// ── Audius stream proxy ────────────────────────────────────────────────
+app.get("/api/stream", wrap(async (req, res) => {
+  const rawUrl = req.query.url;
+  if (!rawUrl) return res.status(400).json({ error: "url required" });
+  const parsed  = new URL(rawUrl);
+  const allowed = ["open-audio-validator.com", "audius.co", "staked.cloud", "theblueprint.xyz", "decentralizeaudio.xyz", "audiusindex.org"];
+  const ok = ["http:", "https:"].includes(parsed.protocol)
+    && allowed.some(h => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`));
+  if (!ok) return res.status(403).json({ error: "Not allowed" });
+  const upstream = await fetch(parsed.toString(), { headers: { Range: req.headers.range || "bytes=0-" } });
+  const ct = upstream.headers.get("content-type") || "audio/mpeg";
+  const cl = upstream.headers.get("content-length");
+  const cr = upstream.headers.get("content-range");
+  res.status(upstream.status);
+  res.set({ "Content-Type": ct, "Accept-Ranges": "bytes", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", ...(cl ? { "Content-Length": cl } : {}), ...(cr ? { "Content-Range": cr } : {}) });
+  const reader = upstream.body.getReader();
+  const pump = async () => { while (true) { const { done, value } = await reader.read(); if (done) break; const ok2 = res.write(value); if (!ok2) await new Promise(r => res.once("drain", r)); } res.end(); };
+  pump().catch(() => { try { res.end(); } catch (_) {} });
+}));
+
+// ── Main Search ────────────────────────────────────────────────────────
+app.get("/api/external/search", wrap(async (req, res) => {
+  const term    = String(req.query.term || "").trim();
+  const rawLang = req.query.language || "malayalam";
+  const mood    = req.query.mood || "";
+  const page    = Math.max(0, Number(req.query.page) || 0);
+  const limit   = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+
+  let seeds;
+  if (mood && MOOD_SEEDS[mood]) {
+    const ms = MOOD_SEEDS[mood];
+    const k  = { malayalam:"ml", tamil:"ta", hindi:"hi", english:"en", all:"ml" }[rawLang] || "ml";
+    seeds    = [ms[k], ms[k] + " 2024", ms.hi];
+  } else {
+    const base     = SEEDS[rawLang] || SEEDS.all;
+    // Pick NON-OVERLAPPING 6-seed chunks per page (no rotation overlap)
+    const chunkSize = 6;
+    const startIdx  = (page * chunkSize) % base.length;
+    seeds = [
+      base[(startIdx + 0) % base.length],
+      base[(startIdx + 1) % base.length],
+      base[(startIdx + 2) % base.length],
+      base[(startIdx + 3) % base.length],
+      base[(startIdx + 4) % base.length],
+      base[(startIdx + 5) % base.length],
+    ];
+  }
+
+  const itunesTracks = term
+    ? await fetchItunes(term, rawLang, limit * 2)
+    : await fetchItunesMultiSeed(seeds, rawLang, limit * 2);
+
+  let audiusTracks = [];
+  if (rawLang === "english" || rawLang === "all") {
+    try {
+      const genreIdx = page % AUDIUS_GENRES.length;
+      audiusTracks   = await fetchAudiusTrending(AUDIUS_GENRES[genreIdx], Math.ceil(limit / 2), page * 10);
+    } catch (e) { console.warn("[Audius]", e.message); }
+  }
+
+  const seenId  = new Set();
+  const seenKey = new Set();
+  const dedup = (arr) => arr.filter(t => {
+    const key = t._dedupKey ||
+      `${canonicalTitle(t.title)}|${firstArtist(t.artist)}`;
+    if (seenId.has(t.id) || seenKey.has(key)) return false;
+    seenId.add(t.id);
+    seenKey.add(key);
+    return true;
+  });
+  // Strip internal _dedupKey before sending to client
+  const tracks = [...dedup(itunesTracks), ...dedup(audiusTracks)]
+    .slice(0, limit * 2)
+    .map(({ _dedupKey, ...t }) => t);
+
+  res.json({ language: rawLang, mood, page, tracks });
+}));
+
+// ── Real Trending Charts ─────────────────────────────────────
+app.get("/api/trending", wrap(async (req, res) => {
+  const language = String(req.query.language || 'malayalam').toLowerCase();
+  try {
+    const data = await fetchTrending(language);
+    res.json(data);
+  } catch (e) {
+    console.error('[Trending] fetch error:', e.message);
+    res.status(503).json({
+      error: 'Trending data unavailable',
+      trending: [], viral: [], movieTracks: [],
+      newReleases: [], topCharts: [],
+      lastUpdated: null,
+    });
+  }
+}));
+
+// ── Bootstrap ───────────────────────────────────────────────
+app.get("/api/bootstrap", wrap(async (req, res) => {
+  const [user, tracks] = await Promise.all([
+    getUser(),
+    Track.find({}).lean(),
+  ]);
+  // Sort history newest-first, cap at 50 for the client
+  const history = [...(user.history || [])]
+    .sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt))
+    .slice(0, 50);
+  res.json({
+    tracks,
+    library:     user.library,
+    preferences: user.preferences,
+    history,
+    favorites:   user.favorites,
+  });
+}));
+
+app.get("/api/tracks", wrap(async (req, res) => {
+  const q = (req.query.q || "").toLowerCase();
+  const filter = {};
+  if (q) filter.$or = [{ title: { $regex: q, $options: "i" } }, { artist: { $regex: q, $options: "i" } }];
+  res.json({ tracks: await Track.find(filter).limit(200).lean() });
+}));
+
+app.post("/api/tracks", wrap(async (req, res) => {
+  const data  = { ...req.body, id: req.body.id || `api-${Date.now()}` };
+  const track = await Track.findOneAndUpdate({ id: data.id }, data, { upsert: true, new: true });
+  res.status(201).json({ track });
+}));
+
+// PATCH /api/preferences — merge partial updates (volume, language, shuffle, repeat, theme…)
+app.patch("/api/preferences", wrap(async (req, res) => {
+  const user = await getUser();
+  // Merge only known/safe keys
+  const allowed = [
+    "theme", "accent", "glass", "crossfade", "quality", "suggestions",
+    "autoplay", "gapless", "normalize", "private", "reducedMotion",
+    "compact", "volume", "language", "shuffle", "repeat",
+  ];
+  for (const k of allowed) {
+    if (req.body[k] !== undefined) user.preferences[k] = req.body[k];
+  }
+  user.markModified("preferences");
+  await user.save();
+  res.json({ preferences: user.preferences });
+}));
+
+// POST /api/history — save a full track snapshot (fire-and-forget from client)
+app.post("/api/history", wrap(async (req, res) => {
+  const { id, title, artist, album, artworkUrl, duration,
+          genre, language, sourceType } = req.body;
+  if (!id) return res.status(400).json({ error: "id required" });
+
+  const user = await getUser();
+
+  // Deduplicate: remove previous entry for this track so newest is always on top
+  user.history = (user.history || []).filter(h => h.id !== id);
+
+  // Prepend new entry
+  user.history.unshift({
+    id, title, artist, album, artworkUrl,
+    duration, genre, language, sourceType,
+    playedAt: new Date(),
+  });
+
+  // Keep last 100 entries
+  if (user.history.length > 100) user.history = user.history.slice(0, 100);
+
+  user.markModified("history");
+  await user.save();
+  res.status(201).json({ ok: true });
+}));
+
+// GET /api/history — return last N played tracks
+app.get("/api/history", wrap(async (req, res) => {
+  const limit = Math.min(50, Number(req.query.limit) || 20);
+  const user  = await getUser();
+  const history = (user.history || []).slice(0, limit);
+  res.json({ history });
+}));
+
+app.put("/api/favorites/:id", wrap(async (req, res) => {
+  const user = await getUser();
+  if (!user.favorites.includes(req.params.id)) user.favorites.push(req.params.id);
+  if (!user.library.savedTrackIds.includes(req.params.id)) user.library.savedTrackIds.push(req.params.id);
+  user.markModified("library");
+  await user.save();
+  res.json({ favorites: user.favorites });
+}));
+
+app.delete("/api/favorites/:id", wrap(async (req, res) => {
+  const user = await getUser();
+  user.favorites             = user.favorites.filter(f => f !== req.params.id);
+  user.library.savedTrackIds = user.library.savedTrackIds.filter(f => f !== req.params.id);
+  user.markModified("library");
+  await user.save();
+  res.json({ favorites: user.favorites });
+}));
+
+app.post("/api/library/tracks", wrap(async (req, res) => {
+  const trackData = req.body.track || req.body;
+  if (!trackData?.id) return res.status(400).json({ error: "id required" });
+  await Track.findOneAndUpdate({ id: trackData.id }, trackData, { upsert: true });
+  const user = await getUser();
+  const add  = (arr, v) => { if (!arr.includes(v)) arr.push(v); };
+  add(user.favorites, trackData.id);
+  add(user.library.savedTrackIds, trackData.id);
+  add(user.library.externalTrackIds, trackData.id);
+  user.library.recentlyAdded.unshift({ id: trackData.id, at: Date.now() });
+  if (user.library.recentlyAdded.length > 40) user.library.recentlyAdded.length = 40;
+  user.markModified("library");
+  await user.save();
+  res.status(201).json({ track: trackData, favorites: user.favorites });
+}));
+
+// ── Excluded (taste profile) ─────────────────────────────────────────────
+app.post("/api/excluded", wrap(async (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: "id required" });
+  const user = await getUser();
+  if (!user.library.excludedTrackIds) user.library.excludedTrackIds = [];
+  if (!user.library.excludedTrackIds.includes(id)) {
+    user.library.excludedTrackIds.push(id);
+    user.markModified("library");
+    await user.save();
+  }
+  res.json({ excluded: user.library.excludedTrackIds });
+}));
+
+app.delete("/api/excluded/:id", wrap(async (req, res) => {
+  const user = await getUser();
+  user.library.excludedTrackIds = (user.library.excludedTrackIds || [])
+    .filter(x => x !== req.params.id);
+  user.markModified("library");
+  await user.save();
+  res.json({ excluded: user.library.excludedTrackIds });
+}));
+
+app.get("/api/health", wrap(async (_req, res) => {
+  res.json({ ok: true, sources: ["YouTube (full tracks)", "iTunes (catalog)", "Audius (English)"] });
+}));
+
+// ── Playlists ────────────────────────────────────────────────────────────
+
+/** Serialize a playlist doc to a plain object with count */
+function playlistJSON(pl) {
+  const obj = pl.toObject ? pl.toObject() : { ...pl };
+  const tracks = Array.isArray(obj.tracks) ? obj.tracks : [];
+  obj.tracks = tracks.filter(t => t && typeof t === "object" && t.id);
+  obj.count  = obj.tracks.length;
+  return obj;
+}
+
+/** GET /api/playlists — list all playlists */
+app.get("/api/playlists", wrap(async (_req, res) => {
+  const docs = await Playlist.find({}).sort({ updatedAt: -1 });
+  res.json({ playlists: docs.map(playlistJSON) });
+}));
+
+/** POST /api/playlists — create a new playlist */
+app.post("/api/playlists", wrap(async (req, res) => {
+  const { name, description = "", color = "#1db954" } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  const id = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const playlist = new Playlist({ id, name: name.trim(), description, color, tracks: [] });
+  await playlist.save();
+  res.status(201).json({ playlist: playlistJSON(playlist) });
+}));
+
+/** GET /api/playlists/:id — get a single playlist with all tracks */
+app.get("/api/playlists/:id", wrap(async (req, res) => {
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  res.json({ playlist: playlistJSON(playlist) });
+}));
+
+/** PATCH /api/playlists/:id — rename / update a playlist */
+app.patch("/api/playlists/:id", wrap(async (req, res) => {
+  const { name, description, color } = req.body;
+  const update = { updatedAt: new Date() };
+  if (name)                      update.name        = name.trim();
+  if (description !== undefined) update.description = description;
+  if (color)                     update.color       = color;
+  const playlist = await Playlist.findOneAndUpdate(
+    { id: req.params.id }, { $set: update }, { new: true }
+  );
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  res.json({ playlist: playlistJSON(playlist) });
+}));
+
+/** DELETE /api/playlists/:id — delete a playlist */
+app.delete("/api/playlists/:id", wrap(async (req, res) => {
+  await Playlist.deleteOne({ id: req.params.id });
+  res.json({ ok: true });
+}));
+
+/** POST /api/playlists/:id/tracks — add a track to a playlist */
+app.post("/api/playlists/:id/tracks", wrap(async (req, res) => {
+  const track = req.body.track;
+  if (!track?.id) return res.status(400).json({ error: "track.id required" });
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!Array.isArray(playlist.tracks)) playlist.tracks = [];
+  const alreadyIn = playlist.tracks.some(t => t && t.id === track.id);
+  if (!alreadyIn) {
+    playlist.tracks.push(track);
+    if (!playlist.coverUrl && track.artworkUrl) playlist.coverUrl = track.artworkUrl;
+    playlist.markModified("tracks");
+    await playlist.save();
+  }
+  res.json({ playlist: playlistJSON(playlist), added: !alreadyIn });
+}));
+
+/** DELETE /api/playlists/:id/tracks/:trackId — remove a track from a playlist */
+app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  playlist.tracks = (Array.isArray(playlist.tracks) ? playlist.tracks : [])
+    .filter(t => t && t.id !== req.params.trackId);
+  playlist.markModified("tracks");
+  await playlist.save();
+  res.json({ playlist: playlistJSON(playlist) });
+}));
+
+app.get("/api/ytdlp-test", wrap(async (req, res) => {
+  const testVideoId = req.query.id || "MKnHHXMD3Bg";
+
+  const test = async (fn) => {
+    try { const r = await fn(); return { ok: true, contentType: r.contentType, url: r.url?.slice(0, 80) + "…" }; }
+    catch (e) { return { ok: false, error: e.message.slice(0, 200) }; }
+  };
+
+  const [cobalt, piped, invidious, innertube, ytdlCore] = await Promise.allSettled([
+    test(() => cobaltGetAudioUrl(testVideoId)),
+    test(() => pipedGetAudioUrl(testVideoId)),
+    test(() => invidiousGetAudioUrl(testVideoId)),
+    test(() => innertubeGetAudioUrl(testVideoId)),
+    test(() => ytdlCoreGetAudioUrl(testVideoId)),
+  ]);
+  const get = r => r.status === "fulfilled" ? r.value : { ok: false, error: r.reason?.message };
+
+  res.json({
+    testVideoId,
+    anyOk: [cobalt, piped, invidious, innertube, ytdlCore].some(r => r.status === "fulfilled" && r.value?.ok),
+    "1_cobalt":      get(cobalt),
+    "2_piped":       get(piped),
+    "3_invidious":   get(invidious),
+    "4_youtubei.js": get(innertube),
+    "5_ytdl-core":   get(ytdlCore),
+    env: { NODE_ENV: process.env.NODE_ENV },
+  });
+}));
+
+app.use("/api/{*path}", (_req, res) => res.status(404).json({ error: "Not found" }));
+
+// ══════════════════════════════════════════════════════════════════════
+//  Start
+// ══════════════════════════════════════════════════════════════════════
+mongoose.connect(mongoURI)
+  .then(() => {
+    console.log("✓ MongoDB connected");
+    app.listen(port, () => {
+      console.log(`✓ Auralis API at http://localhost:${port}`);
+      console.log("  🎵 YouTube full tracks · iTunes catalog · Malayalam/Tamil/Hindi/English");
+    });
+  })
+  .catch(e => { console.error("✗ MongoDB:", e.message); process.exit(1); });
