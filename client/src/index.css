@@ -1748,7 +1748,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   GLASSMORPHISM UPGRADE  — deep glass panels, glows, refined blur
+   GLASSMORPHISM UPGRADE  Â— deep glass panels, glows, refined blur
    --------------------------------------------------------------- */
 
 :root {
@@ -1926,7 +1926,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   PREFERENCES MODAL — full screen glassmorphism overlay
+   PREFERENCES MODAL Â— full screen glassmorphism overlay
    --------------------------------------------------------------- */
 
 .prefs-overlay {
@@ -2524,7 +2524,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   FULL RESPONSIVE — MOBILE-FIRST (Spotify-like)
+   FULL RESPONSIVE Â— MOBILE-FIRST (Spotify-like)
    --------------------------------------------------------------- */
 
 /* -- Mobile bottom nav (hidden by default on desktop) ------- */
@@ -2544,7 +2544,7 @@ body[data-reduced-motion="true"] *::after {
   display: none;
 }
 
-/* --- TABLET — max 1024px ------------------------------------ */
+/* --- TABLET Â— max 1024px ------------------------------------ */
 @media (max-width: 1024px) {
   :root {
     --nav-width: 220px;
@@ -2569,7 +2569,7 @@ body[data-reduced-motion="true"] *::after {
   }
 }
 
-/* --- MOBILE — max 768px ------------------------------------= */
+/* --- MOBILE Â— max 768px ------------------------------------= */
 @media (max-width: 768px) {
 
   /* -- Root / Shell ------------------------------------------ */
@@ -2961,13 +2961,13 @@ body[data-reduced-motion="true"] *::after {
     right: 0 !important;
   }
 
-  /* Ambient layer – reduce on mobile for perf */
+  /* Ambient layer Â– reduce on mobile for perf */
   .ambient-layer {
     display: none;
   }
 }
 
-/* --- SMALL MOBILE — max 380px ------------------------------- */
+/* --- SMALL MOBILE Â— max 380px ------------------------------- */
 @media (max-width: 380px) {
   .album-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -2983,7 +2983,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   BOTTOM NAV — Always visible (all screen sizes, Spotify-style)
+   BOTTOM NAV Â— Always visible (all screen sizes, Spotify-style)
    --------------------------------------------------------------- */
 
 /* App shell: add bottom-nav row on desktop too */
@@ -3611,7 +3611,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   FOOTER PLAYER — Progress bar shimmer (for loading state)
+   FOOTER PLAYER Â— Progress bar shimmer (for loading state)
    --------------------------------------------------------------- */
 
 /* Wrap the range input + fill + shimmer */
@@ -3641,7 +3641,7 @@ body[data-reduced-motion="true"] *::after {
   pointer-events: none;
 }
 
-/* Shimmer overlay — only visible when .progress-line--loading */
+/* Shimmer overlay Â— only visible when .progress-line--loading */
 .progress-shimmer-bar {
   position: absolute;
   top: 0;
@@ -3866,7 +3866,7 @@ body[data-reduced-motion="true"] *::after {
   background: #fff;
 }
 
-/* Shimmer animation — only shown when resolvingId is true */
+/* Shimmer animation Â— only shown when resolvingId is true */
 .spotify-progress-shimmer {
   position: absolute;
   top: 0;
@@ -3935,7 +3935,7 @@ body[data-reduced-motion="true"] *::after {
 .spotify-ctrl-btn:hover { color: #fff; transform: scale(1.1); }
 .spotify-ctrl-btn--active { color: var(--accent) !important; }
 .spotify-ctrl-btn--active::after {
-  content: '•';
+  content: 'Â•';
   display: block;
   position: absolute;
   font-size: 0.4rem;
@@ -4384,7 +4384,7 @@ body[data-reduced-motion="true"] *::after {
    --------------------------------------------------------------- */
 @media (max-width: 768px) {
 
-  /* - App shell: 2 rows only — content + bottom-nav ----------- */
+  /* - App shell: 2 rows only Â— content + bottom-nav ----------- */
   .app-shell {
     display: grid !important;
     grid-template-columns: 1fr !important;
@@ -4528,7 +4528,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   FINAL MOBILE FIX v2 — Overflow, tabs, now-panel alignment
+   FINAL MOBILE FIX v2 Â— Overflow, tabs, now-panel alignment
    --------------------------------------------------------------- */
 
 /* -- 1. Mini-player strip: prevent overflow, always show btns -- */
@@ -4664,7 +4664,7 @@ body[data-reduced-motion="true"] *::after {
 }
 
 /* ---------------------------------------------------------------
-   GLOBAL HORIZONTAL OVERFLOW FIX — All screen sizes
+   GLOBAL HORIZONTAL OVERFLOW FIX Â— All screen sizes
    --------------------------------------------------------------- */
 
 /* Universal box-sizing so padding never adds extra width */
@@ -4717,7 +4717,7 @@ main {
   overflow-x: hidden !important;
 }
 
-/* Horizontal scroll containers — allow scroll but prevent body scroll */
+/* Horizontal scroll containers Â— allow scroll but prevent body scroll */
 .song-scroll,
 .artist-scroll,
 .horizontal-scroll {
@@ -4815,7 +4815,7 @@ main {
 }
 
 /* ---------------------------------------------------------------
-   DEFINITIVE RESPONSIVE FIX — All breakpoints clean
+   DEFINITIVE RESPONSIVE FIX Â— All breakpoints clean
    --------------------------------------------------------------- */
 
 /* -- Universal reset: box-sizing everywhere ------------------- */
@@ -5015,7 +5015,7 @@ html, body, #root {
 }
 
 /* ---------------------------------------------------------------
-   TABLET  769px – 1024px
+   TABLET  769px Â– 1024px
    --------------------------------------------------------------- */
 @media (min-width: 769px) and (max-width: 1024px) {
   .app-shell {
@@ -5065,7 +5065,7 @@ html, body, #root {
 }
 
 /* ---------------------------------------------------------------
-   Library page — Playlist grid
+   Library page Â— Playlist grid
    --------------------------------------------------------------- */
 
 .lib-playlist-grid {
@@ -5128,7 +5128,7 @@ html, body, #root {
 }
 
 /* ---------------------------------------------------------------
-   Now Playing — info row action buttons (heart + plus)
+   Now Playing Â— info row action buttons (heart + plus)
    --------------------------------------------------------------- */
 
 .now-info-actions {
@@ -5156,7 +5156,7 @@ html, body, #root {
   transform: scale(1.08);
 }
 
-/* Heart active — Spotify green */
+/* Heart active Â— Spotify green */
 .now-icon-btn--active {
   color: #1db954 !important;
 }
@@ -5164,7 +5164,7 @@ html, body, #root {
   color: #1ed760 !important;
 }
 
-/* Plus button — slightly brighter default */
+/* Plus button Â— slightly brighter default */
 .now-icon-btn--plus {
   color: rgba(255, 255, 255, 0.65);
 }
@@ -5173,7 +5173,7 @@ html, body, #root {
 }
 
 /* ---------------------------------------------------------------
-   NowPlaying — idle/empty state (no track ever played)
+   NowPlaying Â— idle/empty state (no track ever played)
    --------------------------------------------------------------- */
 
 .now-panel-idle {
@@ -5181,11 +5181,11 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Completely transparent — user sees the panel but it has no content */
+  /* Completely transparent Â— user sees the panel but it has no content */
 }
 
 /* ---------------------------------------------------------------
-   Continue Listening — history card row
+   Continue Listening Â— history card row
    --------------------------------------------------------------- */
 
 .history-row {
@@ -5563,7 +5563,7 @@ html, body, #root {
 @keyframes toast-out { from { opacity:1; } to { opacity:0; } }
 
 /* ---------------------------------------------------------------
-   HOME v2  — Spotify-level redesign
+   HOME v2  Â— Spotify-level redesign
    --------------------------------------------------------------- */
 
 /* Outer wrapper */
@@ -5603,7 +5603,7 @@ html, body, #root {
   max-width: 480px;
 }
 
-/* -- Quick Access 2×3 Grid -- */
+/* -- Quick Access 2Ã—3 Grid -- */
 .quick-access-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -6005,7 +6005,7 @@ html, body, #root {
   color: #fff;
 }
 
-/* Collapsed sidebar — icon-only mode */
+/* Collapsed sidebar Â— icon-only mode */
 .sidebar--collapsed {
   padding: 14px 8px;
   align-items: center;
@@ -6106,7 +6106,7 @@ html, body, #root {
 }
 
 /* ---------------------------------------------------------------
-   TRENDING SECTION — Real Chart Data
+   TRENDING SECTION Â— Real Chart Data
    --------------------------------------------------------------- */
 
 .trending-section {
