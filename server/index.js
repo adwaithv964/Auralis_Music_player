@@ -5,6 +5,19 @@ const cors     = require("cors");
 const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
+const os       = require("os");
+const path     = require("path");
+const fs       = require("fs").promises;
+
+// Append common Python user-bin and virtualenv paths to system PATH for subprocesses
+const homeDir = os.homedir();
+const extraPaths = [
+  path.join(homeDir, ".local", "bin"),
+  path.join(process.cwd(), ".venv", "bin"),
+  "/usr/local/bin",
+  "/usr/bin"
+];
+process.env.PATH = `${process.env.PATH}${path.delimiter}${extraPaths.join(path.delimiter)}`;
 
 const Track    = require('./models/Track');
 const Playlist = require('./models/Playlist');
