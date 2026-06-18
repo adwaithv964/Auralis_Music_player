@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express  = require("express");
 const mongoose = require("mongoose");
 const cors     = require("cors");
@@ -58,42 +58,45 @@ function setCachedAudio(videoId, url, contentType, via) {
   AUDIO_URL_CACHE.set(videoId, { url, contentType, via, expires: Date.now() + CACHE_TTL_MS });
 }
 
-// ── 1. Cobalt.tools API — cloud-server friendly, no IP blocking ─────────
-// cobalt proxies YouTube on behalf of our server using rotating infrastructure
+// ── 1. Cobalt community instances (legacy v9 API — no JWT auth required) ───
+const COBALT_INSTANCES = [
+  // Old v9 API endpoints (isAudioOnly format, no auth)
+  { ep: "https://co.wuk.sh/api/json",          v9: true },
+  { ep: "https://cbl.marcoislam.com/api/json",  v9: true },
+  { ep: "https://cobalt.api.timelessnesses.me/api/json", v9: true },
+  // v10 endpoints without auth (some community instances)
+  { ep: "https://cobalt.synzr.space/",          v9: false },
+];
+
 async function cobaltGetAudioUrl(videoId) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
-  try {
-    const r = await fetch("https://api.cobalt.tools/", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0",
-      },
-      body: JSON.stringify({
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        downloadMode: "audio",
-        audioFormat: "best",
-        quality: "best",
-      }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      throw new Error(`Cobalt HTTP ${r.status}: ${txt.slice(0, 80)}`);
+  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const errs  = [];
+  for (const { ep, v9 } of COBALT_INSTANCES) {
+    try {
+      const ctrl  = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
+      const body  = v9
+        ? { url: ytUrl, isAudioOnly: true }
+        : { url: ytUrl, downloadMode: "audio", audioFormat: "best" };
+      const r = await fetch(ep, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) { errs.push(`${ep}: HTTP ${r.status}`); continue; }
+      const data = await r.json();
+      if (data.url) {
+        console.log(`[Cobalt] ✓ ${videoId} via ${ep}`);
+        return { url: data.url, contentType: "audio/mpeg" };
+      }
+      errs.push(`${ep}: ${data.error?.code || data.status || "no url"}`);
+    } catch (e) {
+      errs.push(`${ep}: ${e.message?.slice(0, 50)}`);
     }
-    const data = await r.json();
-    if (!data.url || data.status === "error") {
-      throw new Error(`Cobalt: ${data.error?.code || data.text || JSON.stringify(data).slice(0, 80)}`);
-    }
-    console.log(`[Cobalt] ✓ ${videoId} (${data.status})`);
-    // Cobalt returns either an audio/mpeg stream or tunnel — treat as audio/mpeg
-    return { url: data.url, contentType: "audio/mpeg" };
-  } finally {
-    clearTimeout(timer);
   }
+  throw new Error(`Cobalt: ${errs.join(" | ")}`);
 }
 
 // ── 1. Piped API — open-source YT proxy, no bot-detection ──────────────
@@ -176,7 +179,10 @@ async function invidiousGetAudioUrl(videoId) {
   throw new Error(`Invidious failed (${errs.join(" | ")})`);
 }
 
-// ── 3. youtubei.js — Innertube API (direct, may be rate-limited) ────────
+// ── 3. youtubei.js — Innertube API ────────────────────────────────────────
+// NOTE: Innertube IS reachable from Render (HTTP 200). Bug was that
+// `f.has_audio` is UNDEFINED for mobile clients, making the filter fail.
+// Fix: detect audio-only formats by mime_type instead.
 let _innertubeInstance = null;
 async function getInnertube() {
   if (_innertubeInstance) return _innertubeInstance;
@@ -185,26 +191,89 @@ async function getInnertube() {
     cache: new UniversalCache(false),
     generate_session_locally: true,
   });
-  console.log("✓ youtubei.js Innertube client initialised");
+  console.log("\u2713 youtubei.js Innertube client initialised");
   return _innertubeInstance;
 }
 
 async function innertubeGetAudioUrl(videoId) {
   const yt = await getInnertube();
-  const info = await yt.getBasicInfo(videoId, "IOS");
-  const formats = info.streaming_data?.adaptive_formats || [];
-  const pick =
-    formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/mp4")) ??
-    formats.find(f => f.has_audio && !f.has_video && f.mime_type?.includes("audio/webm")) ??
-    formats.find(f => f.has_audio && !f.has_video) ??
-    formats.find(f => f.has_audio);
-  if (!pick) throw new Error("youtubei.js: no audio format found");
-  let audioUrl;
-  if (pick.url) audioUrl = pick.url;
-  else if (pick.signature_cipher || pick.cipher) audioUrl = pick.decipher(yt.session.player);
-  else throw new Error("youtubei.js: format URL unresolvable");
-  const ct = (pick.mime_type ?? "audio/mp4").split(";")[0].trim();
-  return { url: audioUrl, contentType: ct };
+
+  // ANDROID client returns unencrypted direct URLs; try multiple clients
+  for (const clientId of ["ANDROID", "IOS", "WEB_MUSIC", "WEB"]) {
+    try {
+      const info = await yt.getBasicInfo(videoId, clientId);
+      const sd   = info.streaming_data;
+      if (!sd) { console.warn(`[Innertube/${clientId}] no streaming_data`); continue; }
+
+      // Combine adaptive + regular formats
+      const allFmts = [
+        ...(Array.isArray(sd.adaptive_formats) ? sd.adaptive_formats : []),
+        ...(Array.isArray(sd.formats)          ? sd.formats          : []),
+      ];
+
+      // IMPORTANT FIX: detect by mime_type — has_audio is undefined for mobile clients
+      const audioFmts = allFmts
+        .filter(f => (f.mime_type || "").toLowerCase().startsWith("audio/"))
+        .sort((a, b) => (b.bitrate || b.average_bitrate || 0) - (a.bitrate || a.average_bitrate || 0));
+
+      if (!audioFmts.length) {
+        console.warn(`[Innertube/${clientId}] ${allFmts.length} formats, none audio`);
+        continue;
+      }
+
+      const pick =
+        audioFmts.find(f => f.mime_type?.includes("mp4"))  ??
+        audioFmts.find(f => f.mime_type?.includes("webm")) ??
+        audioFmts[0];
+
+      if (!pick) continue;
+
+      let audioUrl;
+      if (pick.url) {
+        audioUrl = pick.url;
+      } else if (typeof pick.decipher === "function") {
+        try { audioUrl = pick.decipher(yt.session.player); } catch (_) { continue; }
+      } else {
+        continue;
+      }
+
+      const ct = (pick.mime_type || "audio/mp4").split(";")[0].trim();
+      console.log(`[Innertube] ✓ ${videoId} via ${clientId} (${ct}, ${audioFmts.length} audio fmts)`);
+      return { url: audioUrl, contentType: ct };
+    } catch (e) {
+      console.warn(`[Innertube/${clientId}]: ${e.message?.slice(0, 80)}`);
+    }
+  }
+  throw new Error("youtubei.js: no playable audio format (all clients tried)");
+}
+
+// ── 4. JioSaavn via saavn.dev — reliable for Indian content ─────────────
+// Works from any cloud server, no IP blocking, supports Ma/Ta/Hi/En
+async function saavnGetAudioUrl(query) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(
+      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&limit=5`,
+      { headers: { Accept: "application/json" }, signal: ctrl.signal }
+    );
+    clearTimeout(timer);
+    if (!r.ok) throw new Error(`Saavn HTTP ${r.status}`);
+    const data    = await r.json();
+    const results = data?.data?.results || [];
+    if (!results.length) throw new Error("Saavn: no results");
+    const song = results[0];
+    const urls = song.downloadUrl || [];
+    const best =
+      urls.find(u => u.quality === "320kbps") ??
+      urls.find(u => u.quality === "160kbps") ??
+      urls.at(-1);
+    if (!best?.url) throw new Error("Saavn: no download URL in response");
+    console.log(`[Saavn] ✓ "${song.name}" for query "${query}"`);
+    return { url: best.url, contentType: "audio/mpeg" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── 4. @distube/ytdl-core — direct Node.js scraper ─────────────────────
@@ -272,12 +341,16 @@ async function resolveAudioUrl(videoId) {
   if (cached) { console.log(`[YT] cache hit for ${videoId} (via ${cached.via})`); return cached; }
 
   const methods = [
-    { name: "Cobalt",     fn: () => cobaltGetAudioUrl(videoId)    },
-    { name: "Piped",      fn: () => pipedGetAudioUrl(videoId)     },
-    { name: "Invidious",  fn: () => invidiousGetAudioUrl(videoId) },
-    { name: "youtubei",   fn: () => innertubeGetAudioUrl(videoId) },
-    { name: "ytdl-core",  fn: () => ytdlCoreGetAudioUrl(videoId)  },
-    { name: "yt-dlp",     fn: () => ytdlpGetAudioUrl(videoId)     },
+    // youtubei.js FIRST — Innertube IS reachable from Render (code was buggy before)
+    { name: "youtubei",  fn: () => innertubeGetAudioUrl(videoId)   },
+    // Cobalt community instances (old v9 API, no JWT)
+    { name: "Cobalt",    fn: () => cobaltGetAudioUrl(videoId)      },
+    // Piped + Invidious — sometimes work depending on instance availability
+    { name: "Piped",     fn: () => pipedGetAudioUrl(videoId)       },
+    { name: "Invidious", fn: () => invidiousGetAudioUrl(videoId)   },
+    // Direct scrapers — blocked by YouTube on cloud IPs
+    { name: "ytdl-core", fn: () => ytdlCoreGetAudioUrl(videoId)    },
+    { name: "yt-dlp",    fn: () => ytdlpGetAudioUrl(videoId)       },
   ];
 
   let lastErr;
@@ -501,7 +574,7 @@ function normAudiusTrack(item) {
     sourceType:  "audius",
     previewUrl:  rawStream ? `/api/stream?url=${encodeURIComponent(rawStream)}` : "",
     artworkUrl:  art,
-    year:        item.release_date?.split("-")[0] || "",
+    year:        item.release_date?.split("-")[0],
     lyrics:      [`Full track · ${item.genre}`, `${item.user?.name}`, "via Audius"],
   };
 }
@@ -538,18 +611,26 @@ function wrap(fn) {
 //  Routes
 // ══════════════════════════════════════════════════════════════════════
 
-// ── YouTube: resolve title+artist → full audio stream URL ─────────────
+
+// ── YouTube: stream full audio ──────────────────────────────────────────
+// -- YouTube: resolve title+artist -> stream URL (JioSaavn first)
 app.get("/api/youtube/resolve", wrap(async (req, res) => {
   const { title, artist } = req.query;
   if (!title) return res.status(400).json({ error: "title required" });
 
-  const videoId = await searchYouTube(title, artist || "");
-  if (!videoId) return res.status(404).json({ error: "No YouTube result found" });
+  // Try JioSaavn first -- works from any cloud server, no IP blocking
+  try {
+    const saavn = await saavnGetAudioUrl([title, artist].filter(Boolean).join(" "));
+    return res.json({ videoId: null, streamUrl: saavn.url, via: "saavn" });
+  } catch (e) {
+    console.warn(`[Resolve] Saavn miss for "${title}": ${e.message}`);
+  }
 
-  res.json({ videoId, streamUrl: `/api/youtube/stream?id=${videoId}` });
+  const videoId = await searchYouTube(title, artist || "");
+  if (!videoId) return res.status(404).json({ error: "No result found" });
+  res.json({ videoId, streamUrl: `/api/youtube/stream?id=${videoId}`, via: "youtube" });
 }));
 
-// ── YouTube: stream full audio ──────────────────────────────────────────
 app.get("/api/youtube/stream", wrap(async (req, res) => {
   const { id } = req.query;
   if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
