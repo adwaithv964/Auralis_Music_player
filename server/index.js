@@ -1,4 +1,15 @@
 ﻿require('dotenv').config();
+
+// ── Crash prevention: keep server alive on unhandled errors ─────────────────
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err.message, err.stack?.split("\n")[1] || "");
+  // Don't exit — keep serving other requests
+});
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error("[unhandledRejection]", msg);
+});
+
 const express  = require("express");
 const mongoose = require("mongoose");
 const cors     = require("cors");
@@ -229,13 +240,19 @@ async function innertubeGetAudioUrl(videoId) {
       if (!pick) continue;
 
       let audioUrl;
-      if (pick.url) {
-        audioUrl = pick.url;
-      } else if (typeof pick.decipher === "function") {
-        try { audioUrl = pick.decipher(yt.session.player); } catch (_) { continue; }
-      } else {
+      try {
+        if (pick.url) {
+          // Always convert to plain string — youtubei.js may return a URL object
+          audioUrl = String(pick.url);
+        } else if (typeof pick.decipher === "function") {
+          const deciphered = pick.decipher(yt.session.player);
+          audioUrl = deciphered ? String(deciphered) : null;
+        }
+      } catch (decipherErr) {
+        console.warn(`[Innertube/${clientId}] decipher error: ${decipherErr.message?.slice(0, 60)}`);
         continue;
       }
+      if (!audioUrl || !audioUrl.startsWith("http")) continue;
 
       const ct = (pick.mime_type || "audio/mp4").split(";")[0].trim();
       console.log(`[Innertube] ✓ ${videoId} via ${clientId} (${ct}, ${audioFmts.length} audio fmts)`);
@@ -676,7 +693,12 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": "no-store",
   });
-  return res.redirect(302, entry.url);
+  // Ensure URL is a plain string (youtubei.js can return URL objects)
+  const redirectUrl = String(entry.url || "");
+  if (!redirectUrl.startsWith("http")) {
+    return res.status(500).json({ error: "Resolved audio URL is invalid" });
+  }
+  return res.redirect(302, redirectUrl);
 }));
 
 
