@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 const os       = require("os");
 const path     = require("path");
 const fs       = require("fs").promises;
+const ytdl     = require("@distube/ytdl-core");
 
 // Append common Python user-bin and virtualenv paths to system PATH for subprocesses
 const homeDir = os.homedir();
@@ -32,10 +33,39 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 // ══════════════════════════════════════════════════════════════════════
-//  yt-dlp helper  —  reliable YouTube audio extraction
+//  YouTube audio extraction — @distube/ytdl-core (primary, pure Node.js)
+//  No cookies, no external binaries, works on Render/Vercel natively.
 // ══════════════════════════════════════════════════════════════════════
-const YTDLP_CACHE = new Map(); // videoId → { url, contentType, contentLength, expires }
 
+// Agent options with a realistic browser-like User-Agent
+const YTDL_AGENT = ytdl.createAgent([], {
+  localAddress: undefined,
+});
+
+/**
+ * Get the best audio-only format from ytdl-core.
+ * Returns { url, contentType, mimeType, itag } or throws.
+ */
+async function ytdlGetAudioInfo(videoId) {
+  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const info = await ytdl.getInfo(ytUrl, { agent: YTDL_AGENT });
+
+  // Prefer m4a → webm → any audio
+  const format =
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "mp4" && f.hasAudio && !f.hasVideo }) ||
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: f => f.container === "webm" && f.hasAudio && !f.hasVideo }) ||
+    ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
+
+  if (!format) throw new Error("No audio format found by ytdl-core");
+
+  const mimeType = format.mimeType || "audio/mp4";
+  // Normalise MIME: strip codec params for the Content-Type header
+  const contentType = mimeType.split(";")[0].trim() || "audio/mp4";
+
+  return { url: format.url, contentType, mimeType, itag: format.itag, approxDurationMs: format.approxDurationMs };
+}
+
+// ── yt-dlp fallback (only used if ytdl-core completely fails) ──────────
 let YTDLP_CMD = null;
 
 async function resolveYtdlpCommand() {
@@ -44,46 +74,32 @@ async function resolveYtdlpCommand() {
   const candidates = [
     { cmd: "yt-dlp", args: ["--version"] },
     { cmd: "python3", args: ["-m", "yt_dlp", "--version"] },
-    { cmd: "python", args: ["-m", "yt_dlp", "--version"] }
+    { cmd: "python", args: ["-m", "yt_dlp", "--version"] },
   ];
 
   for (const c of candidates) {
     try {
       await execFileAsync(c.cmd, c.args, { timeout: 3000 });
       YTDLP_CMD = { cmd: c.cmd, baseArgs: c.args.slice(0, -1) };
-      console.log(`✓ Resolved yt-dlp command: ${c.cmd} ${YTDLP_CMD.baseArgs.join(" ")}`);
+      console.log(`✓ Resolved yt-dlp command: ${c.cmd}`);
       return YTDLP_CMD;
-    } catch (err) {
-      // Try next
-    }
+    } catch (_) {}
   }
 
-  console.warn("⚠ Could not resolve working yt-dlp command. Falling back to 'python -m yt_dlp'");
   YTDLP_CMD = { cmd: "python", baseArgs: ["-m", "yt_dlp"] };
   return YTDLP_CMD;
 }
 
-async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
-  if (!bust) {
-    const cached = YTDLP_CACHE.get(videoId);
-    if (cached && cached.expires > Date.now()) return cached;
-  }
-  // Remove stale/expired entry before re-resolving
-  YTDLP_CACHE.delete(videoId);
-
+async function ytdlpGetAudioUrl(videoId) {
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const resolved = await resolveYtdlpCommand();
   const args = [...resolved.baseArgs];
 
-  // Try to locate and use a cookies file (essential to bypass YouTube's bot-detection / CAPTCHA on cloud platforms like Render)
   const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
   try {
     await fs.access(cookiesPath);
     args.push("--cookies", cookiesPath);
-    console.log(`[yt-dlp] Using cookies file: ${cookiesPath}`);
-  } catch (err) {
-    // cookies file not found or inaccessible, proceed without it
-  }
+  } catch (_) {}
 
   args.push(
     "--get-url", "--get-filename",
@@ -94,19 +110,11 @@ async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
   );
 
   const { stdout } = await execFileAsync(resolved.cmd, args, { timeout: 25000, maxBuffer: 1024 * 1024 });
-
   const lines = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
   const audioUrl = lines.find(l => l.startsWith("http")) || "";
   const ext      = lines.find(l => !l.startsWith("http")) || "m4a";
-
   if (!audioUrl) throw new Error("yt-dlp returned no URL");
-
-  const contentType = ext === "webm" ? "audio/webm" : "audio/mp4";
-  // Cache for 3.5h (CDN URLs typically valid ~6h; be conservative)
-  const entry = { url: audioUrl, contentType, expires: Date.now() + 3.5 * 60 * 60 * 1000 };
-  YTDLP_CACHE.set(videoId, entry);
-  if (YTDLP_CACHE.size > 200) YTDLP_CACHE.delete(YTDLP_CACHE.keys().next().value);
-  return entry;
+  return { url: audioUrl, contentType: ext === "webm" ? "audio/webm" : "audio/mp4" };
 }
 
 
@@ -363,36 +371,75 @@ app.get("/api/youtube/resolve", wrap(async (req, res) => {
   res.json({ videoId, streamUrl: `/api/youtube/stream?id=${videoId}` });
 }));
 
-// ── YouTube: stream full audio via yt-dlp (reliable, always works) ──
+// ── YouTube: stream full audio (ytdl-core primary, yt-dlp fallback) ──
 app.get("/api/youtube/stream", wrap(async (req, res) => {
   const { id } = req.query;
   if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
     return res.status(400).json({ error: "Invalid videoId" });
   }
 
-  // First attempt — use cached URL (or resolve fresh)
-  let entry = await ytdlpGetAudioUrl(id);
+  const range = req.headers.range;
+  const ytUrl = `https://www.youtube.com/watch?v=${id}`;
 
-  const tryStream = async (audioUrl, contentType, isRetry = false) => {
-    const range   = req.headers.range;
-    const headers = { "User-Agent": "Mozilla/5.0" };
-    if (range) headers["Range"] = range;
+  // ── Primary: @distube/ytdl-core (pure Node.js, no cookies needed) ────
+  let usedYtdlCore = false;
+  try {
+    const info = await ytdlGetAudioInfo(id);
 
-    const upstream = await fetch(audioUrl, { headers });
+    // If the client sent a Range header, fetch the slice from YouTube's CDN
+    const upstreamHeaders = { "User-Agent": "Mozilla/5.0" };
+    if (range) upstreamHeaders["Range"] = range;
 
-    // CDN URL expired — re-resolve once
-    if (upstream.status === 403 && !isRetry) {
-      console.warn(`[YT stream] 403 on cached URL for ${id}, re-resolving…`);
-      const fresh = await ytdlpGetAudioUrl(id, { bust: true });
-      return tryStream(fresh.url, fresh.contentType, true);
+    const upstream = await fetch(info.url, { headers: upstreamHeaders });
+
+    if (upstream.ok || upstream.status === 206) {
+      const ct = upstream.headers.get("content-type") || info.contentType;
+      const cl = upstream.headers.get("content-length");
+      const cr = upstream.headers.get("content-range");
+
+      res.status(upstream.status || 200);
+      res.set({
+        "Content-Type":                ct,
+        "Accept-Ranges":               "bytes",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control":               "no-store",
+        ...(cl ? { "Content-Length": cl } : {}),
+        ...(cr ? { "Content-Range":  cr } : {}),
+      });
+
+      const reader = upstream.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const ok = res.write(value);
+          if (!ok) await new Promise(r => res.once("drain", r));
+        }
+        res.end();
+      };
+      usedYtdlCore = true;
+      return pump().catch(() => { try { res.end(); } catch (_) {} });
     }
+    // Upstream CDN returned an error; fall through to yt-dlp
+    console.warn(`[YT stream] ytdl-core CDN fetch ${upstream.status} for ${id}, trying yt-dlp fallback`);
+  } catch (err) {
+    console.warn(`[YT stream] ytdl-core failed for ${id}: ${err.message}, trying yt-dlp fallback`);
+  }
 
+  if (usedYtdlCore) return; // already responded
+
+  // ── Fallback: yt-dlp ─────────────────────────────────────────────────
+  try {
+    const entry = await ytdlpGetAudioUrl(id);
+    const upstreamHeaders = { "User-Agent": "Mozilla/5.0" };
+    if (range) upstreamHeaders["Range"] = range;
+
+    const upstream = await fetch(entry.url, { headers: upstreamHeaders });
     if (!upstream.ok && upstream.status !== 206) {
-      res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
-      return;
+      return res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
     }
 
-    const ct = upstream.headers.get("content-type") || contentType || "audio/mp4";
+    const ct = upstream.headers.get("content-type") || entry.contentType;
     const cl = upstream.headers.get("content-length");
     const cr = upstream.headers.get("content-range");
 
@@ -416,10 +463,11 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
       }
       res.end();
     };
-    pump().catch(() => { try { res.end(); } catch (_) {} });
-  };
-
-  await tryStream(entry.url, entry.contentType);
+    return pump().catch(() => { try { res.end(); } catch (_) {} });
+  } catch (err) {
+    console.error(`[YT stream] All methods failed for ${id}:`, err.message);
+    if (!res.headersSent) res.status(500).json({ error: "Audio extraction failed", detail: err.message });
+  }
 }));
 
 
@@ -766,6 +814,21 @@ app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
 }));
 
 app.get("/api/ytdlp-test", wrap(async (req, res) => {
+  const testVideoId = "MKnHHXMD3Bg";
+
+  // Test ytdl-core (primary)
+  let ytdlCoreOk = false;
+  let ytdlCoreInfo = {};
+  let ytdlCoreError = "";
+  try {
+    const info = await ytdlGetAudioInfo(testVideoId);
+    ytdlCoreOk = true;
+    ytdlCoreInfo = { contentType: info.contentType, itag: info.itag };
+  } catch (err) {
+    ytdlCoreError = err.message;
+  }
+
+  // Test yt-dlp (fallback)
   const resolved = await resolveYtdlpCommand();
   const cookiesPath = process.env.YTDLP_COOKIES_FILE || path.join(process.cwd(), "cookies.txt");
   let cookiesExists = false;
@@ -774,56 +837,29 @@ app.get("/api/ytdlp-test", wrap(async (req, res) => {
     const stat = await fs.stat(cookiesPath);
     cookiesExists = true;
     cookiesSize = stat.size;
-  } catch (err) {}
+  } catch (_) {}
 
-  const testVideoId = "MKnHHXMD3Bg";
-  const ytUrl = `https://www.youtube.com/watch?v=${testVideoId}`;
-  const args = [...resolved.baseArgs];
-  if (cookiesExists) {
-    args.push("--cookies", cookiesPath);
-  }
-  args.push(
-    "--get-url", "--get-filename",
-    "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-    "--no-playlist",
-    ytUrl
-  );
-
-  let success = false;
-  let stdout = "";
-  let stderr = "";
-  let errorMsg = "";
-
+  let ytdlpOk = false;
+  let ytdlpError = "";
+  let ytdlpStdout = "";
   try {
+    const args = [...resolved.baseArgs];
+    if (cookiesExists) args.push("--cookies", cookiesPath);
+    args.push("--get-url", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist",
+      `https://www.youtube.com/watch?v=${testVideoId}`);
     const result = await execFileAsync(resolved.cmd, args, { timeout: 15000 });
-    stdout = result.stdout;
-    stderr = result.stderr;
-    success = true;
+    ytdlpStdout = result.stdout.trim();
+    ytdlpOk = true;
   } catch (err) {
-    success = false;
-    errorMsg = err.message;
-    stdout = err.stdout || "";
-    stderr = err.stderr || "";
+    ytdlpError = err.message;
   }
 
   res.json({
-    ok: success,
-    resolvedCommand: resolved,
-    cookies: {
-      path: cookiesPath,
-      exists: cookiesExists,
-      size: cookiesSize
-    },
-    env: {
-      PATH: process.env.PATH,
-      NODE_ENV: process.env.NODE_ENV
-    },
-    test: {
-      videoId: testVideoId,
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
-      error: errorMsg
-    }
+    ok: ytdlCoreOk || ytdlpOk,
+    primary: { method: "@distube/ytdl-core", ok: ytdlCoreOk, info: ytdlCoreInfo, error: ytdlCoreError },
+    fallback: { method: "yt-dlp", ok: ytdlpOk, command: resolved, stdout: ytdlpStdout.slice(0, 200), error: ytdlpError },
+    cookies: { path: cookiesPath, exists: cookiesExists, size: cookiesSize },
+    env: { NODE_ENV: process.env.NODE_ENV },
   });
 }));
 
