@@ -59,12 +59,31 @@ export const api = {
   },
 
   // ── Playback history ───────────────────────────────────────
-  async saveHistory(track) {
-    await fetch('/api/history', {
+  /** Fire-and-forget: saves a full track snapshot. Never throws. */
+  saveHistory(track) {
+    if (!track?.id) return;
+    fetch('/api/history', {
       method:  'POST',
       headers: JSON_HEADERS,
-      body:    JSON.stringify(track),
-    });
+      body: JSON.stringify({
+        id:         track.id,
+        title:      track.title,
+        artist:     track.artist,
+        album:      track.album,
+        artworkUrl: track.artworkUrl,
+        duration:   track.duration,
+        genre:      track.genre,
+        language:   track.language,
+        sourceType: track.sourceType,
+      }),
+    }).catch(() => {});   // silent — never blocks playback
+  },
+
+  /** Fetch play history from server */
+  async getHistory(limit = 20) {
+    const res = await fetch(`/api/history?limit=${limit}`);
+    if (!res.ok) throw new Error(`History fetch failed: ${res.status}`);
+    return res.json(); // { history: [...] }
   },
 
   // ── Library: add a track ───────────────────────────────────
@@ -75,6 +94,76 @@ export const api = {
       body:    JSON.stringify({ track }),
     });
     if (!res.ok) throw new Error(`Add to library failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── Playlists ──────────────────────────────────────────────────
+
+  /** Fetch all playlists */
+  async getPlaylists() {
+    const res = await fetch('/api/playlists');
+    if (!res.ok) throw new Error(`Get playlists failed: ${res.status}`);
+    return res.json(); // { playlists }
+  },
+
+  /** Create a new playlist */
+  async createPlaylist({ name, description = '', color = '#1db954' }) {
+    const res = await fetch('/api/playlists', {
+      method:  'POST',
+      headers: JSON_HEADERS,
+      body:    JSON.stringify({ name, description, color }),
+    });
+    if (!res.ok) throw new Error(`Create playlist failed: ${res.status}`);
+    return res.json(); // { playlist }
+  },
+
+  /** Rename / update a playlist */
+  async updatePlaylist(id, { name, description, color }) {
+    const res = await fetch(`/api/playlists/${encodeURIComponent(id)}`, {
+      method:  'PATCH',
+      headers: JSON_HEADERS,
+      body:    JSON.stringify({ name, description, color }),
+    });
+    if (!res.ok) throw new Error(`Update playlist failed: ${res.status}`);
+    return res.json(); // { playlist }
+  },
+
+  /** Delete a playlist */
+  async deletePlaylist(id) {
+    const res = await fetch(`/api/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`Delete playlist failed: ${res.status}`);
+    return res.json();
+  },
+
+  /** Add a track to a playlist */
+  async addToPlaylist(playlistId, track) {
+    const res = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+      method:  'POST',
+      headers: JSON_HEADERS,
+      body:    JSON.stringify({ track }),
+    });
+    if (!res.ok) throw new Error(`Add to playlist failed: ${res.status}`);
+    return res.json(); // { playlist, added }
+  },
+
+  /** Remove a track from a playlist */
+  async removeFromPlaylist(playlistId, trackId) {
+    const res = await fetch(
+      `/api/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error(`Remove from playlist failed: ${res.status}`);
+    return res.json(); // { playlist }
+  },
+
+  /** Exclude a track from taste profile recommendations */
+  async excludeTrack(trackId) {
+    const res = await fetch('/api/excluded', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ id: trackId }),
+    });
+    if (!res.ok) throw new Error(`Exclude track failed: ${res.status}`);
     return res.json();
   },
 };

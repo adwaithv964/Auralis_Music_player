@@ -1,0 +1,81 @@
+/* ═══════════════════════════════════════════════════════════════
+   Track Context Menu  (tcm)  — Spotify-exact dark popover
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Full-page transparent overlay — catches outside clicks */
+.tcm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  pointer-events: all;
+}
+
+/* The actual menu card */
+.tcm-menu {
+  position: fixed;
+  z-index: 1301;
+  min-width: 230px;
+  background: #282828;
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+  animation: tcm-pop 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@keyframes tcm-pop {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Menu item */
+.tcm-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms;
+}
+.tcm-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.tcm-item--danger { color: #ff6b6b; }
+.tcm-item--danger:hover { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; }
+
+/* Icon wrapper */
+.tcm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.7);
+  width: 18px;
+  height: 18px;
+}
+.tcm-item--danger .tcm-icon { color: #ff6b6b; }
+.tcm-item:hover .tcm-icon   { color: #fff; }
+.tcm-item--danger:hover .tcm-icon { color: #ff6b6b; }
+
+/* Label */
+.tcm-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Divider */
+.tcm-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}

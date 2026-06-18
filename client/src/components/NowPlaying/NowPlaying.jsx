@@ -3,6 +3,7 @@ import { usePlayer }  from '../../context/PlayerContext';
 import { SourceBadge } from '../common/SourceBadge';
 import { artProxy, fmt } from '../../utils/audioHelpers';
 
+
 /**
  * NowPlaying
  * Right-panel on desktop / full-screen sheet on mobile.
@@ -10,7 +11,7 @@ import { artProxy, fmt } from '../../utils/audioHelpers';
  * action buttons (add to playlist, share, queue) and volume.
  */
 export function NowPlaying() {
-  const { mobileNowOpen, setMobileNowOpen, prefs, setPrefs } = useApp();
+  const { mobileNowOpen, setMobileNowOpen, prefs, setPrefs, openPlaylistModal } = useApp();
   const {
     currentTrack,
     isPlaying, seek,
@@ -21,6 +22,7 @@ export function NowPlaying() {
     isFav,
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
+
 
   return (
     <aside
@@ -42,7 +44,9 @@ export function NowPlaying() {
               </svg>
             </button>
             <div className="spotify-now-context">
-              <span className="spotify-now-context-label">NOW PLAYING</span>
+              <span className="spotify-now-context-label">
+                {isPlaying ? 'NOW PLAYING' : 'LAST PLAYED'}
+              </span>
               {currentTrack.album && <span className="spotify-now-context-val">{currentTrack.album}</span>}
             </div>
             <button className="spotify-down-btn" title="More options">
@@ -74,22 +78,44 @@ export function NowPlaying() {
             )}
           </div>
 
-          {/* ── Track info + heart ── */}
+          {/* ─ Track info + ♥ + ＋ (Spotify layout) ─ */}
           <div className="spotify-now-info">
             <div className="spotify-now-text">
               <strong className="spotify-now-title">{currentTrack.title}</strong>
               <span className="spotify-now-artist">{currentTrack.artist}</span>
               {currentTrack.album && <span className="spotify-now-album">{currentTrack.album}</span>}
             </div>
-            <button
-              className={`spotify-heart-btn${isFav ? ' spotify-heart-btn--active' : ''}`}
-              onClick={() => toggleFavorite(currentTrack.id)}
-              title={isFav ? 'Remove from saved' : 'Save to library'}
-            >
-              <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" width="22" height="22">
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-              </svg>
-            </button>
+
+            {/* Right-side action icons: ♥  +  ··· */}
+            <div className="now-info-actions">
+              {/* Heart — save to liked */}
+              <button
+                className={`now-icon-btn${isFav ? ' now-icon-btn--active' : ''}`}
+                onClick={() => toggleFavorite(currentTrack.id)}
+                title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+              >
+                <svg viewBox="0 0 24 24"
+                  fill={isFav ? 'currentColor' : 'none'}
+                  stroke="currentColor" strokeWidth="1.8"
+                  width="24" height="24">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                </svg>
+              </button>
+
+              {/* Plus — add to playlist */}
+              <button
+                className="now-icon-btn now-icon-btn--plus"
+                onClick={() => openPlaylistModal(currentTrack)}
+                title="Add to playlist"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" width="22" height="22">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="16"/>
+                  <line x1="8" y1="12" x2="16" y2="12"/>
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* ── Progress bar ── */}
@@ -200,16 +226,8 @@ export function NowPlaying() {
 
         </div>
       ) : (
-        <div className="empty-now">
-          <svg viewBox="0 0 24 24" width="48" height="48" style={{ fill:'none', stroke:'var(--muted)', strokeWidth:1.2 }}>
-            <circle cx="12" cy="12" r="10"/>
-            <circle cx="12" cy="12" r="3"/>
-            <line x1="12" y1="2" x2="12" y2="9"/>
-            <line x1="12" y1="15" x2="12" y2="22"/>
-          </svg>
-          <p>Nothing playing</p>
-          <span>Pick a song to start listening</span>
-        </div>
+        /* ── Empty panel — no track ever played ── */
+        <div className="now-panel-idle" />
       )}
     </aside>
   );

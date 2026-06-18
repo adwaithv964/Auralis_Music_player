@@ -4,13 +4,16 @@
  * Owns all non-audio app state:
  *   - UI (view, mobile panels, preferences dialog)
  *   - Language / mood filter
- *   - Preferences (theme, volume, accent)
+ *   - Preferences (theme, volume, accent) — persisted to MongoDB
  *   - Playlists
+ *   - Play history (loaded from bootstrap, full track snapshots)
  *   - Track data (local + external)
- *   - Favorites list (loaded from bootstrap, mutated by PlayerContext)
+ *   - Favorites list
  *   - Search state + doLoadExternal
  */
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  createContext, useContext, useState, useEffect, useRef, useCallback,
+} from 'react';
 import { api } from '../services/api';
 import { trackHasAudio } from '../utils/audioHelpers';
 import { DEFAULT_PREFS } from '../utils/constants';
@@ -29,35 +32,69 @@ export function AppProvider({ children }) {
   const [showPrefs,     setShowPrefs]     = useState(false);
 
   // ── Music data ───────────────────────────────────────────────
-  const [prefs,          setPrefs]          = useState(DEFAULT_PREFS);
-  const [playlists,      setPlaylists]      = useState([]);
-  const [localTracks,    setLocalTracks]    = useState([]);
+  const [prefs,          setPrefsRaw]      = useState(DEFAULT_PREFS);
+  const [playlists,      setPlaylists]     = useState([]);
+
+  // ── History (full track snapshots, newest first) ─────────────
+  const [playHistory,    setPlayHistory]   = useState([]);
+
+  // ── Playlist modal state ─────────────────────────────────────
+  const [playlistModal,  setPlaylistModal] = useState({ open: false, track: null });
+  const [localTracks,    setLocalTracks]   = useState([]);
   const [externalTracks, setExternalTracks] = useState([]);
-  const [favorites,      setFavorites]      = useState([]);
+  const [favorites,      setFavorites]     = useState([]);
 
   // ── Language / mood filter ───────────────────────────────────
   const [language, setLanguage] = useState('malayalam');
   const [mood,     setMood]     = useState('');
 
   // ── Search ───────────────────────────────────────────────────
-  const [searchQuery,      setSearchQuery]      = useState('');
-  const [suggestions,      setSuggestions]      = useState([]);
-  const [showSuggestions,  setShowSuggestions]  = useState(false);
+  const [searchQuery,     setSearchQuery]     = useState('');
+  const [suggestions,     setSuggestions]     = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // ── External loading state ───────────────────────────────────
   const [isLoadingExt, setIsLoadingExt] = useState(false);
   const [extPage,      setExtPage]      = useState(0);
 
-  // ── Bootstrap: load initial data ────────────────────────────
+  // ── Preferences debounce ref (avoids hammering DB on slider) ─
+  const prefsSaveTimer = useRef(null);
+
+  // ── setPrefs: update local state + debounced DB persist ──────
+  const setPrefs = useCallback((updater) => {
+    setPrefsRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+      // Debounce DB write by 800ms — no lag for sliders/toggles
+      clearTimeout(prefsSaveTimer.current);
+      prefsSaveTimer.current = setTimeout(() => {
+        api.updatePreferences(next).catch(() => {});
+      }, 800);
+      return next;
+    });
+  }, []);
+
+  // ── Bootstrap: load initial data from MongoDB ────────────────
   useEffect(() => {
     api.fetchBootstrap()
       .then(data => {
         setLocalTracks(data.tracks    || []);
-        setPlaylists(  data.playlists || []);
         setFavorites(  data.favorites || []);
-        if (data.preferences) setPrefs(p => ({ ...p, ...data.preferences }));
+        // Restore history snapshots (full track objects)
+        setPlayHistory(data.history   || []);
+        // Merge saved preferences (language, volume, theme, etc.)
+        if (data.preferences) {
+          setPrefsRaw(p => ({ ...p, ...data.preferences }));
+          // Apply saved language without triggering DB write on mount
+          if (data.preferences.language) {
+            setLanguage(data.preferences.language);
+          }
+        }
       })
       .catch(console.error);
+    // Load playlists separately
+    api.getPlaylists()
+      .then(data => setPlaylists(data.playlists || []))
+      .catch(() => {});
   }, []);
 
   // ── Apply theme + accent CSS vars ───────────────────────────
@@ -66,6 +103,23 @@ export function AppProvider({ children }) {
     document.body.style.setProperty('--accent', prefs.accent || '#1db954');
   }, [prefs.theme, prefs.accent]);
 
+  // ── Persist language to preferences when user changes it ─────
+  const changeLanguage = useCallback((lang) => {
+    setLanguage(lang);
+    setMood('');
+    setView('home');
+    setMobileNavOpen(false);
+    // Save to DB (debounced via setPrefs)
+    setPrefs(p => ({ ...p, language: lang }));
+  }, [setPrefs]);
+
+  // ── Dedup helpers (mirrors server logic) ────────────────────
+  const canonicalTitle = (t) =>
+    String(t || '').replace(/\s*\(.*?\)\s*/g, '').replace(/\s*\[.*?\]\s*/g, '').toLowerCase().trim();
+  const firstArtist = (a) =>
+    String(a || '').split(/[,&]/)[0].toLowerCase().trim();
+  const dedupKey = (t) => `${canonicalTitle(t.title)}|${firstArtist(t.artist)}`;
+
   // ── Load external tracks ─────────────────────────────────────
   const doLoadExternal = useCallback(async (lang, moodVal, page, term) => {
     setIsLoadingExt(true);
@@ -73,11 +127,28 @@ export function AppProvider({ children }) {
       const data     = await api.searchExternal(term, lang, page, moodVal);
       const incoming = (data.tracks || []).filter(trackHasAudio);
       if (page === 0) {
-        setExternalTracks(incoming);
+        // Fresh load — dedup within the new batch
+        const seenId  = new Set();
+        const seenKey = new Set();
+        const fresh = incoming.filter(t => {
+          const k = dedupKey(t);
+          if (seenId.has(t.id) || seenKey.has(k)) return false;
+          seenId.add(t.id); seenKey.add(k);
+          return true;
+        });
+        setExternalTracks(fresh);
       } else {
+        // Append — dedup against existing + within incoming
         setExternalTracks(prev => {
-          const ids = new Set(prev.map(t => t.id));
-          return [...prev, ...incoming.filter(t => !ids.has(t.id))];
+          const seenId  = new Set(prev.map(t => t.id));
+          const seenKey = new Set(prev.map(dedupKey));
+          const unique = incoming.filter(t => {
+            const k = dedupKey(t);
+            if (seenId.has(t.id) || seenKey.has(k)) return false;
+            seenId.add(t.id); seenKey.add(k);
+            return true;
+          });
+          return [...prev, ...unique];
         });
       }
       setExtPage(page + 1);
@@ -95,12 +166,36 @@ export function AppProvider({ children }) {
     doLoadExternal(language, mood, 0, '');
   }, [language, mood]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Change language helper (also resets mood + goes home) ───
-  const changeLanguage = useCallback((lang) => {
-    setLanguage(lang);
-    setMood('');
-    setView('home');
-    setMobileNavOpen(false);
+  // ── Playlist CRUD actions ────────────────────────────────────
+  const createPlaylist = useCallback(async ({ name, description, color }) => {
+    const data = await api.createPlaylist({ name, description, color });
+    setPlaylists(prev => [data.playlist, ...prev]);
+    return data.playlist;
+  }, []);
+
+  const addToPlaylist = useCallback(async (playlistId, track) => {
+    const data = await api.addToPlaylist(playlistId, track);
+    setPlaylists(prev => prev.map(p => p.id === playlistId ? data.playlist : p));
+    return data;
+  }, []);
+
+  const removeFromPlaylist = useCallback(async (playlistId, trackId) => {
+    const data = await api.removeFromPlaylist(playlistId, trackId);
+    setPlaylists(prev => prev.map(p => p.id === playlistId ? data.playlist : p));
+  }, []);
+
+  const deletePlaylist = useCallback(async (id) => {
+    await api.deletePlaylist(id);
+    setPlaylists(prev => prev.filter(p => p.id !== id));
+  }, []);
+
+  /** Open the playlist-picker modal for a specific track */
+  const openPlaylistModal = useCallback((track) => {
+    setPlaylistModal({ open: true, track });
+  }, []);
+
+  const closePlaylistModal = useCallback(() => {
+    setPlaylistModal({ open: false, track: null });
   }, []);
 
   const value = {
@@ -115,9 +210,18 @@ export function AppProvider({ children }) {
     prefs, setPrefs,
     // Playlists
     playlists,
+    createPlaylist,
+    addToPlaylist,
+    removeFromPlaylist,
+    deletePlaylist,
+    playlistModal,
+    openPlaylistModal,
+    closePlaylistModal,
     // Track data
     localTracks,
     externalTracks,
+    // History
+    playHistory, setPlayHistory,
     // Favorites
     favorites, setFavorites,
     // Language / mood

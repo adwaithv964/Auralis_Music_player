@@ -22,13 +22,16 @@ app.use(express.json({ limit: "1mb" }));
 // ══════════════════════════════════════════════════════════════════════
 const YTDLP_CACHE = new Map(); // videoId → { url, contentType, contentLength, expires }
 
-async function ytdlpGetAudioUrl(videoId) {
-  const cached = YTDLP_CACHE.get(videoId);
-  if (cached && cached.expires > Date.now()) return cached;
+async function ytdlpGetAudioUrl(videoId, { bust = false } = {}) {
+  if (!bust) {
+    const cached = YTDLP_CACHE.get(videoId);
+    if (cached && cached.expires > Date.now()) return cached;
+  }
+  // Remove stale/expired entry before re-resolving
+  YTDLP_CACHE.delete(videoId);
 
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  // Use yt-dlp via python to get the direct CDN audio URL
   const { stdout } = await execFileAsync("python", [
     "-m", "yt_dlp",
     "--get-url", "--get-filename",
@@ -39,14 +42,14 @@ async function ytdlpGetAudioUrl(videoId) {
   ], { timeout: 25000, maxBuffer: 1024 * 1024 });
 
   const lines = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
-  // Lines: [url, ext]  or just [url]
   const audioUrl = lines.find(l => l.startsWith("http")) || "";
   const ext      = lines.find(l => !l.startsWith("http")) || "m4a";
 
   if (!audioUrl) throw new Error("yt-dlp returned no URL");
 
   const contentType = ext === "webm" ? "audio/webm" : "audio/mp4";
-  const entry = { url: audioUrl, contentType, expires: Date.now() + 4 * 60 * 60 * 1000 };
+  // Cache for 3.5h (CDN URLs typically valid ~6h; be conservative)
+  const entry = { url: audioUrl, contentType, expires: Date.now() + 3.5 * 60 * 60 * 1000 };
   YTDLP_CACHE.set(videoId, entry);
   if (YTDLP_CACHE.size > 200) YTDLP_CACHE.delete(YTDLP_CACHE.keys().next().value);
   return entry;
@@ -156,23 +159,45 @@ const MOOD_SEEDS = {
 
 function hashStr(v) { return [...String(v)].reduce((s, c) => s + c.charCodeAt(0), 0); }
 
+/** Strip parenthetical movie-name suffixes → canonical title for dedup */
+function canonicalTitle(title) {
+  return String(title || "")
+    .replace(/\s*\(.*?\)\s*/g, "")  // (From "Movie")
+    .replace(/\s*\[.*?\]\s*/g, "")  // [OST]
+    .replace(/\s*-\s*(title\s+track|reprise|redux).*$/i, "") // - Title Track
+    .toLowerCase()
+    .trim();
+}
+
+/** First credited artist, lower-cased */
+function firstArtist(artistStr) {
+  return String(artistStr || "")
+    .split(/[,&]/)[0]
+    .toLowerCase()
+    .trim();
+}
+
 function normItunesTrack(item, language) {
   const art = item.artworkUrl100?.replace("100x100bb", "600x600bb") || "";
   const id  = `itunes-${item.trackId || hashStr(item.trackName || "")}`;
+  const title  = item.trackName  || "Untitled";
+  const artist = item.artistName || "Unknown";
   return {
     id,
-    title:          item.trackName || "Untitled",
-    artist:         item.artistName || "Unknown",
+    title,
+    artist,
     album:          item.collectionName || "iTunes",
     duration:       Math.round((item.trackTimeMillis || 180000) / 1000),
     genre:          item.primaryGenreName || "Music",
     language,
-    isFull:         false,   // starts as preview; resolved to full on play
+    isFull:         false,
     ytResolved:     false,
     sourceType:     "itunes",
     previewUrl:     item.previewUrl || "",
     artworkUrl:     art,
     lyrics:         ["Tap to play full track via YouTube"],
+    // Canonical key for cross-seed deduplication
+    _dedupKey:      `${canonicalTitle(title)}|${firstArtist(artist)}`,
   };
 }
 
@@ -193,12 +218,22 @@ async function fetchItunes(term, language, limit = 25) {
 
 async function fetchItunesMultiSeed(seeds, language, limit) {
   const picked = seeds.slice(0, 4);
-  const batches = await Promise.allSettled(picked.map(s => fetchItunes(s, language, Math.ceil(limit / picked.length) + 5)));
-  const seen = new Set();
-  const out  = [];
+  const batches = await Promise.allSettled(
+    picked.map(s => fetchItunes(s, language, Math.ceil(limit / picked.length) + 5))
+  );
+  const seenId   = new Set();
+  const seenKey  = new Set(); // canonical title|firstArtist
+  const out = [];
   for (const b of batches) {
     if (b.status !== "fulfilled") continue;
-    for (const t of b.value) { if (!seen.has(t.id)) { seen.add(t.id); out.push(t); } }
+    for (const t of b.value) {
+      const key = t._dedupKey ||
+        `${canonicalTitle(t.title)}|${firstArtist(t.artist)}`;
+      if (seenId.has(t.id) || seenKey.has(key)) continue;
+      seenId.add(t.id);
+      seenKey.add(key);
+      out.push(t);
+    }
   }
   return out;
 }
@@ -281,41 +316,56 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return res.status(400).json({ error: "Invalid videoId" });
   }
 
-  // Get the direct CDN audio URL from yt-dlp (cached for 4h)
-  const { url: audioUrl, contentType } = await ytdlpGetAudioUrl(id);
+  // First attempt — use cached URL (or resolve fresh)
+  let entry = await ytdlpGetAudioUrl(id);
 
-  // Proxy the audio to the browser, forwarding any Range header
-  const range    = req.headers.range;
-  const headers  = { "User-Agent": "Mozilla/5.0" };
-  if (range) headers["Range"] = range;
+  const tryStream = async (audioUrl, contentType, isRetry = false) => {
+    const range   = req.headers.range;
+    const headers = { "User-Agent": "Mozilla/5.0" };
+    if (range) headers["Range"] = range;
 
-  const upstream = await fetch(audioUrl, { headers });
+    const upstream = await fetch(audioUrl, { headers });
 
-  const ct = upstream.headers.get("content-type") || contentType || "audio/mp4";
-  const cl = upstream.headers.get("content-length");
-  const cr = upstream.headers.get("content-range");
-
-  res.status(upstream.status || 200);
-  res.set({
-    "Content-Type":               ct,
-    "Accept-Ranges":              "bytes",
-    "Access-Control-Allow-Origin":"*",
-    "Cache-Control":              "no-store",
-    ...(cl ? { "Content-Length": cl } : {}),
-    ...(cr ? { "Content-Range":  cr } : {}),
-  });
-
-  const reader = upstream.body.getReader();
-  const pump = async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const ok = res.write(value);
-      if (!ok) await new Promise(r => res.once("drain", r));
+    // CDN URL expired — re-resolve once
+    if (upstream.status === 403 && !isRetry) {
+      console.warn(`[YT stream] 403 on cached URL for ${id}, re-resolving…`);
+      const fresh = await ytdlpGetAudioUrl(id, { bust: true });
+      return tryStream(fresh.url, fresh.contentType, true);
     }
-    res.end();
+
+    if (!upstream.ok && upstream.status !== 206) {
+      res.status(upstream.status).json({ error: `Upstream ${upstream.status}` });
+      return;
+    }
+
+    const ct = upstream.headers.get("content-type") || contentType || "audio/mp4";
+    const cl = upstream.headers.get("content-length");
+    const cr = upstream.headers.get("content-range");
+
+    res.status(upstream.status || 200);
+    res.set({
+      "Content-Type":                ct,
+      "Accept-Ranges":               "bytes",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control":               "no-store",
+      ...(cl ? { "Content-Length": cl } : {}),
+      ...(cr ? { "Content-Range":  cr } : {}),
+    });
+
+    const reader = upstream.body.getReader();
+    const pump = async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const ok = res.write(value);
+        if (!ok) await new Promise(r => res.once("drain", r));
+      }
+      res.end();
+    };
+    pump().catch(() => { try { res.end(); } catch (_) {} });
   };
-  pump().catch(() => { try { res.end(); } catch (_) {} });
+
+  await tryStream(entry.url, entry.contentType);
 }));
 
 
@@ -374,8 +424,16 @@ app.get("/api/external/search", wrap(async (req, res) => {
     const k  = { malayalam:"ml", tamil:"ta", hindi:"hi", english:"en", all:"ml" }[rawLang] || "ml";
     seeds    = [ms[k], ms[k] + " 2024", ms.hi];
   } else {
-    const base = SEEDS[rawLang] || SEEDS.all;
-    seeds = [...base.slice(page % base.length), ...base.slice(0, page % base.length)];
+    const base     = SEEDS[rawLang] || SEEDS.all;
+    // Pick NON-OVERLAPPING 4-seed chunks per page (no rotation overlap)
+    const chunkSize = 4;
+    const startIdx  = (page * chunkSize) % base.length;
+    seeds = [
+      base[(startIdx + 0) % base.length],
+      base[(startIdx + 1) % base.length],
+      base[(startIdx + 2) % base.length],
+      base[(startIdx + 3) % base.length],
+    ];
   }
 
   const itunesTracks = term
@@ -390,17 +448,41 @@ app.get("/api/external/search", wrap(async (req, res) => {
     } catch (e) { console.warn("[Audius]", e.message); }
   }
 
-  const seen   = new Set();
-  const dedup  = arr => arr.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
-  const tracks = [...dedup(itunesTracks), ...dedup(audiusTracks)].slice(0, limit * 2);
+  const seenId  = new Set();
+  const seenKey = new Set();
+  const dedup = (arr) => arr.filter(t => {
+    const key = t._dedupKey ||
+      `${canonicalTitle(t.title)}|${firstArtist(t.artist)}`;
+    if (seenId.has(t.id) || seenKey.has(key)) return false;
+    seenId.add(t.id);
+    seenKey.add(key);
+    return true;
+  });
+  // Strip internal _dedupKey before sending to client
+  const tracks = [...dedup(itunesTracks), ...dedup(audiusTracks)]
+    .slice(0, limit * 2)
+    .map(({ _dedupKey, ...t }) => t);
 
   res.json({ language: rawLang, mood, page, tracks });
 }));
 
-// ── Bootstrap ──────────────────────────────────────────────────────────
+// ── Bootstrap ───────────────────────────────────────────────
 app.get("/api/bootstrap", wrap(async (req, res) => {
-  const [user, tracks, playlists] = await Promise.all([getUser(), Track.find({}).lean(), Playlist.find({}).lean()]);
-  res.json({ tracks, playlists, library: user.library, preferences: user.preferences, history: user.history, favorites: user.favorites });
+  const [user, tracks] = await Promise.all([
+    getUser(),
+    Track.find({}).lean(),
+  ]);
+  // Sort history newest-first, cap at 50 for the client
+  const history = [...(user.history || [])]
+    .sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt))
+    .slice(0, 50);
+  res.json({
+    tracks,
+    library:     user.library,
+    preferences: user.preferences,
+    history,
+    favorites:   user.favorites,
+  });
 }));
 
 app.get("/api/tracks", wrap(async (req, res) => {
@@ -416,20 +498,55 @@ app.post("/api/tracks", wrap(async (req, res) => {
   res.status(201).json({ track });
 }));
 
+// PATCH /api/preferences — merge partial updates (volume, language, shuffle, repeat, theme…)
 app.patch("/api/preferences", wrap(async (req, res) => {
   const user = await getUser();
-  Object.assign(user.preferences, req.body);
+  // Merge only known/safe keys
+  const allowed = [
+    "theme", "accent", "glass", "crossfade", "quality", "suggestions",
+    "autoplay", "gapless", "normalize", "private", "reducedMotion",
+    "compact", "volume", "language", "shuffle", "repeat",
+  ];
+  for (const k of allowed) {
+    if (req.body[k] !== undefined) user.preferences[k] = req.body[k];
+  }
   user.markModified("preferences");
   await user.save();
   res.json({ preferences: user.preferences });
 }));
 
+// POST /api/history — save a full track snapshot (fire-and-forget from client)
 app.post("/api/history", wrap(async (req, res) => {
+  const { id, title, artist, album, artworkUrl, duration,
+          genre, language, sourceType } = req.body;
+  if (!id) return res.status(400).json({ error: "id required" });
+
   const user = await getUser();
-  user.history.push({ ...req.body, at: Date.now() });
-  if (user.history.length > 100) user.history.splice(0, user.history.length - 100);
+
+  // Deduplicate: remove previous entry for this track so newest is always on top
+  user.history = (user.history || []).filter(h => h.id !== id);
+
+  // Prepend new entry
+  user.history.unshift({
+    id, title, artist, album, artworkUrl,
+    duration, genre, language, sourceType,
+    playedAt: new Date(),
+  });
+
+  // Keep last 100 entries
+  if (user.history.length > 100) user.history = user.history.slice(0, 100);
+
+  user.markModified("history");
   await user.save();
   res.status(201).json({ ok: true });
+}));
+
+// GET /api/history — return last N played tracks
+app.get("/api/history", wrap(async (req, res) => {
+  const limit = Math.min(50, Number(req.query.limit) || 20);
+  const user  = await getUser();
+  const history = (user.history || []).slice(0, limit);
+  res.json({ history });
 }));
 
 app.put("/api/favorites/:id", wrap(async (req, res) => {
@@ -466,8 +583,113 @@ app.post("/api/library/tracks", wrap(async (req, res) => {
   res.status(201).json({ track: trackData, favorites: user.favorites });
 }));
 
+// ── Excluded (taste profile) ─────────────────────────────────────────────
+app.post("/api/excluded", wrap(async (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: "id required" });
+  const user = await getUser();
+  if (!user.library.excludedTrackIds) user.library.excludedTrackIds = [];
+  if (!user.library.excludedTrackIds.includes(id)) {
+    user.library.excludedTrackIds.push(id);
+    user.markModified("library");
+    await user.save();
+  }
+  res.json({ excluded: user.library.excludedTrackIds });
+}));
+
+app.delete("/api/excluded/:id", wrap(async (req, res) => {
+  const user = await getUser();
+  user.library.excludedTrackIds = (user.library.excludedTrackIds || [])
+    .filter(x => x !== req.params.id);
+  user.markModified("library");
+  await user.save();
+  res.json({ excluded: user.library.excludedTrackIds });
+}));
+
 app.get("/api/health", wrap(async (_req, res) => {
   res.json({ ok: true, sources: ["YouTube (full tracks)", "iTunes (catalog)", "Audius (English)"] });
+}));
+
+// ── Playlists ────────────────────────────────────────────────────────────
+
+/** Serialize a playlist doc to a plain object with count */
+function playlistJSON(pl) {
+  const obj = pl.toObject ? pl.toObject() : { ...pl };
+  const tracks = Array.isArray(obj.tracks) ? obj.tracks : [];
+  obj.tracks = tracks.filter(t => t && typeof t === "object" && t.id);
+  obj.count  = obj.tracks.length;
+  return obj;
+}
+
+/** GET /api/playlists — list all playlists */
+app.get("/api/playlists", wrap(async (_req, res) => {
+  const docs = await Playlist.find({}).sort({ updatedAt: -1 });
+  res.json({ playlists: docs.map(playlistJSON) });
+}));
+
+/** POST /api/playlists — create a new playlist */
+app.post("/api/playlists", wrap(async (req, res) => {
+  const { name, description = "", color = "#1db954" } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  const id = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const playlist = new Playlist({ id, name: name.trim(), description, color, tracks: [] });
+  await playlist.save();
+  res.status(201).json({ playlist: playlistJSON(playlist) });
+}));
+
+/** GET /api/playlists/:id — get a single playlist with all tracks */
+app.get("/api/playlists/:id", wrap(async (req, res) => {
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  res.json({ playlist: playlistJSON(playlist) });
+}));
+
+/** PATCH /api/playlists/:id — rename / update a playlist */
+app.patch("/api/playlists/:id", wrap(async (req, res) => {
+  const { name, description, color } = req.body;
+  const update = { updatedAt: new Date() };
+  if (name)                      update.name        = name.trim();
+  if (description !== undefined) update.description = description;
+  if (color)                     update.color       = color;
+  const playlist = await Playlist.findOneAndUpdate(
+    { id: req.params.id }, { $set: update }, { new: true }
+  );
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  res.json({ playlist: playlistJSON(playlist) });
+}));
+
+/** DELETE /api/playlists/:id — delete a playlist */
+app.delete("/api/playlists/:id", wrap(async (req, res) => {
+  await Playlist.deleteOne({ id: req.params.id });
+  res.json({ ok: true });
+}));
+
+/** POST /api/playlists/:id/tracks — add a track to a playlist */
+app.post("/api/playlists/:id/tracks", wrap(async (req, res) => {
+  const track = req.body.track;
+  if (!track?.id) return res.status(400).json({ error: "track.id required" });
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!Array.isArray(playlist.tracks)) playlist.tracks = [];
+  const alreadyIn = playlist.tracks.some(t => t && t.id === track.id);
+  if (!alreadyIn) {
+    playlist.tracks.push(track);
+    if (!playlist.coverUrl && track.artworkUrl) playlist.coverUrl = track.artworkUrl;
+    playlist.markModified("tracks");
+    await playlist.save();
+  }
+  res.json({ playlist: playlistJSON(playlist), added: !alreadyIn });
+}));
+
+/** DELETE /api/playlists/:id/tracks/:trackId — remove a track from a playlist */
+app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  playlist.tracks = (Array.isArray(playlist.tracks) ? playlist.tracks : [])
+    .filter(t => t && t.id !== req.params.trackId);
+  playlist.markModified("tracks");
+  await playlist.save();
+  res.json({ playlist: playlistJSON(playlist) });
 }));
 
 app.use("/api/{*path}", (_req, res) => res.status(404).json({ error: "Not found" }));

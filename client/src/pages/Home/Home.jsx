@@ -31,6 +31,7 @@ export function Home() {
     suggestions, setSuggestions,
     showSuggestions, setShowSuggestions,
     localTracks,
+    playHistory,
   } = useApp();
   const { handlePlay, currentTrack, resolvingId } = usePlayer();
   const debounceRef = useRef(null);
@@ -124,6 +125,48 @@ export function Home() {
 
       {/* ── Mood chips ── */}
       <MoodBar mood={mood} onChange={m => setMood(m)} />
+
+      {/* ── Continue Listening ── */}
+      {playHistory.length > 0 && (
+        <section className="content-section">
+          <div className="section-header">
+            <div>
+              <p className="section-kicker">🕒 Recently played</p>
+              <h2>Continue Listening</h2>
+            </div>
+          </div>
+          <div className="history-row">
+            {playHistory.slice(0, 10).map(t => (
+              <button
+                key={t.id}
+                className={`history-card${currentTrack?.id === t.id ? ' history-card--active' : ''}`}
+                onClick={() => handlePlay({ ...t, previewUrl: t.previewUrl || '' })}
+                title={`${t.title} — ${t.artist}`}
+              >
+                <div className="history-card-art">
+                  {t.artworkUrl ? (
+                    <img src={`/api/artwork?url=${encodeURIComponent(t.artworkUrl)}`}
+                      alt={t.title} />
+                  ) : (
+                    <div className="history-card-art--empty">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28">
+                        <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
+                      </svg>
+                    </div>
+                  )}
+                  {currentTrack?.id === t.id && (
+                    <div className="history-card-playing">
+                      <span /><span /><span />
+                    </div>
+                  )}
+                </div>
+                <p className="history-card-title">{t.title}</p>
+                <p className="history-card-artist">{t.artist}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Hero band ── */}
       <section className="hero-band">
