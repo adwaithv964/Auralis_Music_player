@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 
 // ── Crash prevention: keep server alive on unhandled errors ─────────────────
 process.on("uncaughtException", (err) => {
@@ -264,30 +264,91 @@ async function innertubeGetAudioUrl(videoId) {
   throw new Error("youtubei.js: no playable audio format (all clients tried)");
 }
 
-// ── 4. JioSaavn via saavn.dev — reliable for Indian content ─────────────
-// Works from any cloud server, no IP blocking, supports Ma/Ta/Hi/En
+// ── 4. JioSaavn — reliable for Indian content ────────────────────────────
+// Three endpoints tried in order:
+//   a) saavn.dev community wrapper (easiest, pre-decrypted URLs)
+//   b) JioSaavn official search API (always reachable, needs URL decryption)
+//   c) api.sangeet.cool (another community wrapper)
+
+// Decrypt JioSaavn encrypted media URL (20-cipher XOR)
+function decryptSaavnUrl(encUrl) {
+  const key = "38346591";
+  const url = decodeURIComponent(encUrl);
+  let result = "";
+  for (let i = 0; i < url.length; i++) {
+    result += String.fromCharCode(url.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return result.replace("http://", "https://").replace("96kbps", "320kbps").replace(".mp3", ".mp4");
+}
+
 async function saavnGetAudioUrl(query) {
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const r = await fetch(
-      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&limit=5`,
-      { headers: { Accept: "application/json" }, signal: ctrl.signal }
-    );
-    clearTimeout(timer);
-    if (!r.ok) throw new Error(`Saavn HTTP ${r.status}`);
-    const data    = await r.json();
-    const results = data?.data?.results || [];
-    if (!results.length) throw new Error("Saavn: no results");
-    const song = results[0];
-    const urls = song.downloadUrl || [];
-    const best =
-      urls.find(u => u.quality === "320kbps") ??
-      urls.find(u => u.quality === "160kbps") ??
-      urls.at(-1);
-    if (!best?.url) throw new Error("Saavn: no download URL in response");
-    console.log(`[Saavn] ✓ "${song.name}" for query "${query}"`);
-    return { url: best.url, contentType: "audio/mpeg" };
+    // Source A: saavn.dev (pre-decrypted, cleanest)
+    let r;
+    try {
+      r = await fetch(
+        `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&limit=5`,
+        { headers: { Accept: "application/json" }, signal: ctrl.signal }
+      );
+      if (r.ok) {
+        const data    = await r.json();
+        const results = data?.data?.results || [];
+        if (results.length) {
+          const song = results[0];
+          const urls = song.downloadUrl || [];
+          const best = urls.find(u => u.quality === "320kbps") ?? urls.find(u => u.quality === "160kbps") ?? urls.at(-1);
+          if (best?.url) {
+            console.log(`[Saavn/dev] ✓ "${song.name}" for "${query}"`);
+            return { url: best.url, contentType: "audio/mpeg" };
+          }
+        }
+      }
+    } catch (e) { console.warn(`[Saavn/dev] ${e.message.slice(0, 60)}`); }
+
+    // Source B: JioSaavn official search API (used by Saavn app)
+    try {
+      const search = await fetch(
+        `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&N=5&p=1&_format=json&_marker=0`,
+        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json", "Cookie": "geo=IN" }, signal: ctrl.signal }
+      );
+      if (search.ok) {
+        const raw = await search.text();
+        // JioSaavn wraps JSON in a function call sometimes
+        const json = raw.startsWith("{") ? JSON.parse(raw) : JSON.parse(raw.match(/\{.*\}/s)?.[0] || "{}");
+        const songs = json?.results || [];
+        for (const s of songs) {
+          const enc = s?.more_info?.encrypted_media_url || s?.more_info?.["320kbps"];
+          if (enc) {
+            const url = decryptSaavnUrl(enc);
+            if (url.startsWith("http")) {
+              console.log(`[Saavn/api] ✓ "${s.title}" for "${query}"`);
+              return { url, contentType: "audio/mp4" };
+            }
+          }
+        }
+      }
+    } catch (e) { console.warn(`[Saavn/api] ${e.message.slice(0, 60)}`); }
+
+    // Source C: sangeet.cool wrapper
+    try {
+      const sg = await fetch(
+        `https://api.sangeet.cool/search?q=${encodeURIComponent(query)}&limit=5`,
+        { headers: { Accept: "application/json" }, signal: ctrl.signal }
+      );
+      if (sg.ok) {
+        const data = await sg.json();
+        const song = (data?.results || data?.data || [])[0];
+        const url  = song?.downloadUrl?.[4]?.url || song?.downloadUrl?.[3]?.url;
+        if (url) {
+          console.log(`[Saavn/sangeet] ✓ "${song.name}" for "${query}"`);
+          return { url, contentType: "audio/mpeg" };
+        }
+      }
+    } catch (e) { console.warn(`[Saavn/sangeet] ${e.message.slice(0, 60)}`); }
+
+    throw new Error(`Saavn: no working source for "${query}"`);
   } finally {
     clearTimeout(timer);
   }
