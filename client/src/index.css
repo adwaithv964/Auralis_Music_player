@@ -1205,8 +1205,10 @@ body[data-reduced-motion="true"] *::after {
     font-size: 2.5rem;
   }
 
+  /* 3 cards per row on mobile \u2014 compact grid */
   .album-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .filter-chips {
@@ -1225,6 +1227,37 @@ body[data-reduced-motion="true"] *::after {
 
   .preference-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Compact album card for 3-per-row mobile layout */
+  .album-card {
+    padding: 6px;
+    gap: 4px;
+  }
+
+  .album-card-title {
+    font-size: 0.72rem;
+  }
+
+  .album-card-artist {
+    font-size: 0.65rem;
+  }
+
+  .album-card-play-btn {
+    width: 28px;
+    height: 28px;
+    bottom: 4px;
+    right: 4px;
+  }
+
+  .album-card-play-btn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .album-card-badge {
+    font-size: 0.52rem;
+    padding: 1px 4px;
   }
 }
 

@@ -99,10 +99,13 @@ export function AppProvider({ children }) {
         // Merge saved preferences (language, volume, theme, etc.)
         if (data.preferences) {
           setPrefsRaw(p => ({ ...p, ...data.preferences }));
-          // Apply saved language without triggering DB write on mount
-          if (data.preferences.language) {
-            setLanguage(data.preferences.language);
+          // Always default to Malayalam — only restore if user explicitly set it
+          // (non-english, non-empty). This ensures Malayalam is the landing language.
+          const savedLang = data.preferences.language;
+          if (savedLang && savedLang !== 'english') {
+            setLanguage(savedLang);
           }
+          // If no saved language or it was English, stays as 'malayalam' (initial state)
         }
       })
       .catch(err => console.error('[Bootstrap] failed after retries:', err.message));
