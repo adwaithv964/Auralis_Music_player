@@ -41,9 +41,9 @@ export function HomeSection({
         )}
       </div>
 
-      {/* Horizontally scrollable row */}
+      {/* Horizontally scrollable row (becomes grid on mobile) */}
       <div
-        className="flex gap-4 overflow-x-auto pb-3"
+        className="home-section-row flex gap-4 overflow-x-auto pb-3"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {children}

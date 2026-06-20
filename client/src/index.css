@@ -1206,10 +1206,35 @@ body[data-reduced-motion="true"] *::after {
   }
 
   /* 3 cards per row on mobile \u2014 compact grid */
-  .album-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+  .album-grid, .home-section-row, .home-album-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    overflow-x: hidden !important; /* disable horizontal scroll */
   }
+
+  .track-card-premium {
+    width: 100% !important;
+  }
+  
+  .track-card-title {
+    font-size: 0.72rem;
+  }
+  
+  .track-card-artist {
+    font-size: 0.65rem;
+  }
+
+  .track-card-play-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .track-card-play-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
 
   .filter-chips {
     justify-content: flex-start;
