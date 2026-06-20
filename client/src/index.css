@@ -131,9 +131,7 @@ button {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background:
-    conic-gradient(from 210deg, var(--accent), #7cc7ff, #ff7a90, #ffd166, var(--accent)),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.6), transparent);
+  background: url('/assets/logo_1.png') center/cover no-repeat !important;
   box-shadow: 0 0 24px rgba(var(--accent-rgb) / 0.3);
 }
 
@@ -6669,7 +6667,7 @@ html, body, #root {
 
   .topbar-actions .ghost-button {
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    background: rgba(255, 255, 255, 0.06) !important;
+    background: url('/assets/logo_1.png') center/cover no-repeat !important;
     border-radius: 50% !important;
     width: 38px !important;
     height: 38px !important;
@@ -6678,7 +6676,7 @@ html, body, #root {
     align-items: center !important;
     justify-content: center !important;
     padding: 0 !important;
-    color: #fff !important;
+    color: transparent !important;
   }
 
   .topbar-actions .ghost-button span {
@@ -6686,9 +6684,7 @@ html, body, #root {
   }
 
   .topbar-actions .ghost-button svg {
-    margin: 0 !important;
-    width: 16px !important;
-    height: 16px !important;
+    display: none !important;
   }
 
   /* Language Categories horizontal cards */
