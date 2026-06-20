@@ -20,6 +20,21 @@ import { DEFAULT_PREFS } from '../utils/constants';
 
 export const AppContext = createContext(null);
 
+// ── Retry a promise-returning fn up to `maxRetries` times with exponential back-off ─
+function withRetry(fn, maxRetries = 4, baseDelayMs = 1500) {
+  return new Promise((resolve, reject) => {
+    const attempt = (n) => {
+      fn().then(resolve).catch(err => {
+        if (n >= maxRetries) { reject(err); return; }
+        const delay = baseDelayMs * Math.pow(2, n); // 1.5s, 3s, 6s, 12s
+        console.warn(`[AppContext] retry ${n + 1}/${maxRetries} in ${delay}ms — ${err.message}`);
+        setTimeout(() => attempt(n + 1), delay);
+      });
+    };
+    attempt(0);
+  });
+}
+
 export function AppProvider({ children }) {
   // ── Navigation ───────────────────────────────────────────────
   const [view,          setView]          = useState('home');
@@ -73,9 +88,9 @@ export function AppProvider({ children }) {
     });
   }, []);
 
-  // ── Bootstrap: load initial data from MongoDB ────────────────
+  // ── Bootstrap: load initial data from MongoDB ────────────────────────
   useEffect(() => {
-    api.fetchBootstrap()
+    withRetry(() => api.fetchBootstrap(), 5, 2000)
       .then(data => {
         setLocalTracks(data.tracks    || []);
         setFavorites(  data.favorites || []);
@@ -90,9 +105,9 @@ export function AppProvider({ children }) {
           }
         }
       })
-      .catch(console.error);
+      .catch(err => console.error('[Bootstrap] failed after retries:', err.message));
     // Load playlists separately
-    api.getPlaylists()
+    withRetry(() => api.getPlaylists(), 5, 2000)
       .then(data => setPlaylists(data.playlists || []))
       .catch(() => {});
   }, []);
@@ -120,11 +135,15 @@ export function AppProvider({ children }) {
     String(a || '').split(/[,&]/)[0].toLowerCase().trim();
   const dedupKey = (t) => `${canonicalTitle(t.title)}|${firstArtist(t.artist)}`;
 
-  // ── Load external tracks ─────────────────────────────────────
+  // ── Load external tracks ─────────────────────────────────
   const doLoadExternal = useCallback(async (lang, moodVal, page, term) => {
     setIsLoadingExt(true);
     try {
-      const data     = await api.searchExternal(term, lang, page, moodVal);
+      // Retry once after a short delay on transient 502/503
+      const data = await withRetry(
+        () => api.searchExternal(term, lang, page, moodVal),
+        2, 2000
+      );
       const incoming = (data.tracks || []).filter(trackHasAudio);
       if (page === 0) {
         // Fresh load — dedup within the new batch

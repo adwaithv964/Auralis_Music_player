@@ -44,6 +44,28 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+// ── Global 55-second request timeout (prevents Vite 502 on slow resolvers) ─
+app.use((req, res, next) => {
+  res.setTimeout(55000, () => {
+    if (!res.headersSent) res.status(504).json({ error: 'Request timed out' });
+  });
+  next();
+});
+
+// ── DB-ready flag (set after mongoose.connect succeeds) ──────────────────────
+let dbReady = false;
+
+// Routes that need MongoDB — return 503 until connected
+const DB_ROUTES = ['/api/bootstrap', '/api/playlists', '/api/tracks', '/api/history',
+  '/api/favorites', '/api/library', '/api/preferences', '/api/excluded'];
+
+app.use((req, res, next) => {
+  if (!dbReady && DB_ROUTES.some(r => req.path.startsWith(r))) {
+    return res.status(503).json({ error: 'Database not ready yet — please retry in a moment' });
+  }
+  next();
+});
+
 // ══════════════════════════════════════════════════════════════════════
 //  YouTube audio extraction
 //  Root issue: YouTube blocks cloud-server IPs (429/bot-detection).
@@ -264,21 +286,23 @@ async function innertubeGetAudioUrl(videoId) {
   throw new Error("youtubei.js: no playable audio format (all clients tried)");
 }
 
-// ── 4. JioSaavn — reliable for Indian content ────────────────────────────
-// Four sources tried; each has its OWN AbortController with a 5s timeout.
-// CRITICAL FIX: the old code used ONE shared AbortController — when
-// source A (saavn.dev) timed out, it aborted sources B, C, D too.
-
-// DES-ECB decrypt for JioSaavn encrypted_media_url (base64-encoded)
+// ── 4. JioSaavn — PRIMARY source for Indian (especially Malayalam) music ─────
+// JioSaavn is FREE, no API key, full 320kbps MP4 CDN streams.
+// 2-step flow: search.getResults → song IDs → song.getDetails (api_version=4) → DES-ECB decrypt
+//
+// Node.js v22 + OpenSSL 3 disabled DES-ECB. Server is started with
+// NODE_OPTIONS=--openssl-legacy-provider to re-enable it.
 const { createDecipheriv } = require("crypto");
+
 function decryptSaavnUrl(encryptedUrl) {
   try {
-    const key      = Buffer.from("38346591");              // 8-byte DES key
-    const decipher = createDecipheriv("des-ecb", key, ""); // ECB has no IV
+    const key      = Buffer.from("38346591");
+    const decipher = createDecipheriv("des-ecb", key, "");
     decipher.setAutoPadding(true);
-    const decoded  = Buffer.from(encryptedUrl, "base64");
-    const plain    = Buffer.concat([decipher.update(decoded), decipher.final()])
-                       .toString("utf8").replace(/\0/g, "");
+    const plain = Buffer.concat([
+      decipher.update(Buffer.from(encryptedUrl, "base64")),
+      decipher.final(),
+    ]).toString("utf8").replace(/\0/g, "").trim();
     return plain
       .replace("http://", "https://")
       .replace(/_96\./, "_320.")
@@ -287,150 +311,113 @@ function decryptSaavnUrl(encryptedUrl) {
   } catch (_) { return ""; }
 }
 
-// Helper: fetch JSON with its own 5-second timeout; returns null on failure.
-async function saavnFetch(url, opts = {}) {
+
+
+
+// Timed text fetch with JioSaavn headers — each has its own AbortController
+async function jioFetchText(url, ms = 8000) {
   const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json", Cookie: "geo=IN" },
+      signal: ctrl.signal,
+    });
     if (!r.ok) return null;
-    return await r.json();
+    return await r.text();
   } catch (_) { return null; } finally { clearTimeout(timer); }
 }
 
-async function saavnGetAudioUrl(query) {
+/** Strip JSONP wrapper and parse JSON safely */
+function parseJioJson(text) {
+  if (!text) return null;
+  try {
+    const s = text.trim();
+    const i = Math.min(
+      s.indexOf("{") >= 0 ? s.indexOf("{") : Infinity,
+      s.indexOf("[") >= 0 ? s.indexOf("[") : Infinity,
+    );
+    return i === Infinity ? null : JSON.parse(s.slice(i));
+  } catch (_) { return null; }
+}
+
+/** Extract encrypted_media_url from a song detail object — handles string more_info */
+function saavnExtractEnc(sd) {
+  if (!sd) return null;
+  let mi = sd.more_info;
+  if (!mi) return null;
+  if (typeof mi === "string") { try { mi = JSON.parse(mi); } catch (_) { return null; } }
+  return mi?.encrypted_media_url || null;
+}
+
+/** STEP 1: Search JioSaavn → return array of song IDs */
+async function jioSearchIds(query) {
   const q = encodeURIComponent(query);
-
-  // Source A: saavn.dev (pre-decrypted 320kbps URLs) ─────────────────────
-  const dataA = await saavnFetch(
-    `https://saavn.dev/api/search/songs?query=${q}&limit=5`,
-    { headers: { Accept: "application/json" } }
+  // Primary: search.getResults (fast, returns IDs even though more_info is null)
+  const textA = await jioFetchText(
+    `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${q}&N=5&p=1&_format=json&_marker=0`
   );
-  const songA = dataA?.data?.results?.[0];
-  const urlsA = songA?.downloadUrl || [];
-  const bestA = urlsA.find(u => u.quality === "320kbps") ?? urlsA.find(u => u.quality === "160kbps") ?? urlsA.at(-1);
-  if (bestA?.url) {
-    console.log(`[Saavn/dev] ✓ "${songA.name}" for "${query}"`);
-    return { url: bestA.url, contentType: "audio/mpeg" };
-  }
-  console.warn(`[Saavn/dev] miss for "${query}" (data=${dataA ? 'ok-no-url' : 'null'})`);
+  const idsA = (parseJioJson(textA)?.results || []).map(s => s?.id).filter(Boolean);
+  if (idsA.length) return idsA;
 
-  // Source B: JioSaavn official search API (jiosaavn.com/api.php) ─────────
-  {
-    const ctrl  = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5000);
-    try {
-      const r = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${q}&N=5&p=1&_format=json&_marker=0`,
-        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json", Cookie: "geo=IN" }, signal: ctrl.signal }
-      );
-      clearTimeout(timer);
-      if (r.ok) {
-        const text = await r.text();
-        // strip possible JSONP wrapper
-        const jsonStr = text.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}";
-        const data    = JSON.parse(jsonStr);
-        const songs   = Array.isArray(data?.results) ? data.results : [];
-        for (const s of songs) {
-          const enc = s?.more_info?.encrypted_media_url;
-          if (!enc) continue;
-          const url = decryptSaavnUrl(enc);
-          if (url.startsWith("http")) {
-            console.log(`[Saavn/jiosaavn] ✓ "${s.title}" for "${query}"`);
-            return { url, contentType: "audio/mp4" };
-          }
-        }
-        console.warn(`[Saavn/jiosaavn] ${songs.length} results but no usable URL for "${query}"`);
-      } else {
-        console.warn(`[Saavn/jiosaavn] HTTP ${r.status} for "${query}"`);
-      }
-    } catch (e) { clearTimeout(timer); console.warn(`[Saavn/jiosaavn] ${e.message.slice(0,60)}`); }
-  }
-
-  // Source C: saavn.dev songs/search alternate path ─────────────────────
-  const dataC = await saavnFetch(
-    `https://saavn.dev/api/songs/search?query=${q}&limit=5`,
-    { headers: { Accept: "application/json" } }
+  // Fallback: autocomplete
+  const textB = await jioFetchText(
+    `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${q}&_format=json&_marker=0&ctx=wap6dot0`
   );
-  const songsC = dataC?.data?.results ?? (Array.isArray(dataC?.data) ? dataC.data : []);
-  const songC  = songsC?.[0];
-  const urlsC  = songC?.downloadUrl || [];
-  const bestC  = urlsC.find(u => u.quality === "320kbps") ?? urlsC.find(u => u.quality === "160kbps") ?? urlsC.at(-1);
-  if (bestC?.url) {
-    console.log(`[Saavn/alt] ✓ "${songC.name}" for "${query}"`);
-    return { url: bestC.url, contentType: "audio/mpeg" };
-  }
-  console.warn(`[Saavn/alt] miss for "${query}"`);
+  return (parseJioJson(textB)?.songs?.data || []).map(s => s?.id).filter(Boolean);
+}
 
-  // Source D: JioSaavn autocomplete → song details ──────────────────────
-  {
-    const ctrl  = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6000);
-    try {
-      const acR = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${q}&_format=json&_marker=0&ctx=wap6dot0`,
-        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, signal: ctrl.signal }
-      );
-      if (acR.ok) {
-        const acText = await acR.text();
-        const acJson = JSON.parse(acText.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}");
-        const songId = acJson?.songs?.data?.[0]?.id;
-        if (songId) {
-          const sR = await fetch(
-            `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&pids=${songId}`,
-            { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, signal: ctrl.signal }
-          );
-          clearTimeout(timer);
-          if (sR.ok) {
-            const sText = await sR.text();
-            const sJson = JSON.parse(sText.trim().replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "") || "{}");
-            const sd    = sJson?.[songId];
-            const enc   = sd?.more_info?.encrypted_media_url;
-            if (enc) {
-              const url = decryptSaavnUrl(enc);
-              if (url.startsWith("http")) {
-                console.log(`[Saavn/autocomplete] ✓ "${sd?.song}" for "${query}"`);
-                return { url, contentType: "audio/mp4" };
-              }
-            }
-          }
-        } else { clearTimeout(timer); }
-      } else { clearTimeout(timer); }
-    } catch (e) { clearTimeout(timer); console.warn(`[Saavn/autocomplete] ${e.message.slice(0,60)}`); }
+/** STEP 2: Batch-fetch song.getDetails for IDs → decrypt and return stream URL */
+async function jioGetStreamUrl(ids) {
+  if (!ids?.length) throw new Error("no IDs");
+  const pids = ids.slice(0, 5).join(",");
+  // CRITICAL: api_version=4 is required — without it JioSaavn returns more_info:null
+  const text = await jioFetchText(
+    `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&api_version=4&pids=${pids}`
+  );
+  const data = parseJioJson(text);
+  if (!data) throw new Error("song.getDetails returned null");
+  for (const id of ids) {
+    const sd  = data[id];
+    const enc = saavnExtractEnc(sd);
+    if (!enc) continue;
+    const url = decryptSaavnUrl(enc);
+    if (url.startsWith("http")) {
+      console.log(`[Saavn] ✓ "${sd?.song || id}" → ${url.slice(0, 55)}…`);
+      return { url, contentType: "audio/mp4" };
+    }
+    console.warn(`[Saavn] decrypt produced non-http for id ${id}`);
   }
+  throw new Error(`Saavn: no playable URL in ${ids.length} results`);
+}
 
-  throw new Error(`Saavn: all 4 sources failed for "${query}"`);
+/** Public: query text → stream URL (two JioSaavn API calls: search + details) */
+async function saavnGetAudioUrl(query) {
+  const ids = await jioSearchIds(query);
+  if (!ids.length) throw new Error(`Saavn: no results for "${query}"`);
+  return jioGetStreamUrl(ids);
 }
 
 /**
- * Smart Saavn search: tries multiple query variations to improve match rate.
- * Indian song titles from iTunes often have extra text that breaks exact Saavn search.
- * e.g. "Parayathe Vannen (From \"Premam\")" → tries "Parayathe Vannen" as well.
+ * Smart Saavn search with query simplification fallbacks.
+ * Malayalam/Tamil titles from iTunes often have "| Official Audio | Movie Name" suffixes
+ * that prevent Saavn from matching. We strip these progressively.
  */
 async function saavnSearch(rawQuery) {
   if (!rawQuery) throw new Error("Saavn: empty query");
-
-  // Generate progressively simplified query variations
   const queries = [
     rawQuery,
-    // Remove parenthetical notes: "Song (From Movie)" → "Song"
-    rawQuery.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(),
-    // Remove after dash/colon/pipe: "Song - Official" → "Song"
-    rawQuery.replace(/\s*[-|:]\s*.+$/, "").trim(),
-    // Remove common suffixes: "Official", "Audio", "Video", "Lyric", "HD"
+    rawQuery.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(),   // remove (From "Movie")
+    rawQuery.replace(/\s*[-|:]\s*.+$/, "").trim(),              // remove " - Official Audio…"
     rawQuery.replace(/\b(official|audio|video|lyric|lyrics|full|song|hd|4k)\b.*/gi, "").trim(),
-    // First 3 words only (broad match)
-    rawQuery.split(/\s+/).slice(0, 3).join(" "),
-  ]
-    // Deduplicate and remove empties / too-short strings
-    .filter((q, i, arr) => q && q.length > 2 && arr.indexOf(q) === i);
+    rawQuery.split(/\s+/).slice(0, 3).join(" "),                // first 3 words
+  ].filter((q, i, arr) => q && q.length > 2 && arr.indexOf(q) === i);
 
   let lastErr;
   for (const q of queries) {
-    try {
-      return await saavnGetAudioUrl(q);
-    } catch (e) {
-      console.warn(`[Saavn] query "${q}" → ${e.message.slice(0, 60)}`);
+    try { return await saavnGetAudioUrl(q); }
+    catch (e) {
+      console.warn(`[Saavn] query "${q.slice(0, 50)}" → ${e.message.slice(0, 60)}`);
       lastErr = e;
     }
   }
@@ -456,15 +443,16 @@ let YTDLP_CMD = null;
 async function resolveYtdlpCommand() {
   if (YTDLP_CMD) return YTDLP_CMD;
   const candidates = [
-    { cmd: "yt-dlp",  args: ["--version"] },
-    { cmd: "python3", args: ["-m", "yt_dlp", "--version"] },
+    // python -m yt_dlp is confirmed installed on this machine
     { cmd: "python",  args: ["-m", "yt_dlp", "--version"] },
+    { cmd: "python3", args: ["-m", "yt_dlp", "--version"] },
+    { cmd: "yt-dlp",  args: ["--version"] },
   ];
   for (const c of candidates) {
     try {
-      await execFileAsync(c.cmd, c.args, { timeout: 3000 });
+      await execFileAsync(c.cmd, c.args, { timeout: 5000 });
       YTDLP_CMD = { cmd: c.cmd, baseArgs: c.args.slice(0, -1) };
-      console.log(`✓ yt-dlp resolved: ${c.cmd}`);
+      console.log(`✓ yt-dlp resolved: ${c.cmd} ${c.args.slice(0,-1).join(' ')}`);
       return YTDLP_CMD;
     } catch (_) {}
   }
@@ -492,26 +480,48 @@ async function ytdlpGetAudioUrl(videoId) {
 }
 
 /**
- * Master resolver — tries all five methods in priority order.
- * Proxy-based methods (Piped/Invidious) go first since cloud server IPs
- * are blocked by YouTube directly.
- * Results are cached for 4 hours.
+ * Master resolver — priority order:
+ * 1. JioSaavn (via oEmbed title) — FASTEST for Indian/Malayalam music, no YT needed
+ * 2. youtubei.js Innertube — direct, works when not IP-blocked
+ * 3. Cobalt / Piped / Invidious — proxy layers
+ * 4. yt-dlp pipe — last resort (python -m yt_dlp, confirmed installed)
  */
 async function resolveAudioUrl(videoId) {
   const cached = getCachedAudio(videoId);
   if (cached) { console.log(`[YT] cache hit for ${videoId} (via ${cached.via})`); return cached; }
 
+  // ── Pre-flight: oEmbed title → JioSaavn lookup ──────────────────────────
+  // For Malayalam/Indian tracks, Saavn has the full track and CDN is fast.
+  // This saves 10-30s compared to going through all the YouTube resolvers.
+  try {
+    const oeCtrl  = new AbortController();
+    const oeTimer = setTimeout(() => oeCtrl.abort(), 4000);
+    const oeRes   = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+      { signal: oeCtrl.signal }
+    );
+    clearTimeout(oeTimer);
+    if (oeRes.ok) {
+      const { title: oeTitle } = await oeRes.json();
+      if (oeTitle) {
+        const saavn = await saavnSearch(oeTitle);
+        console.log(`[YT] resolved ${videoId} via Saavn+oEmbed ("${oeTitle.slice(0,40)}")`);
+        setCachedAudio(videoId, saavn.url, saavn.contentType, "saavn");
+        return { ...saavn, via: "saavn" };
+      }
+    }
+  } catch (saavnPreErr) {
+    console.warn(`[YT] Saavn pre-flight miss for ${videoId}: ${saavnPreErr.message?.slice(0, 60)}`);
+  }
+
   const methods = [
-    // youtubei.js FIRST — Innertube IS reachable from Render (code was buggy before)
-    { name: "youtubei",  fn: () => innertubeGetAudioUrl(videoId)   },
-    // Cobalt community instances (old v9 API, no JWT)
-    { name: "Cobalt",    fn: () => cobaltGetAudioUrl(videoId)      },
-    // Piped + Invidious — sometimes work depending on instance availability
-    { name: "Piped",     fn: () => pipedGetAudioUrl(videoId)       },
-    { name: "Invidious", fn: () => invidiousGetAudioUrl(videoId)   },
-    // Direct scrapers — blocked by YouTube on cloud IPs
-    { name: "ytdl-core", fn: () => ytdlCoreGetAudioUrl(videoId)    },
-    { name: "yt-dlp",    fn: () => ytdlpGetAudioUrl(videoId)       },
+    { name: "youtubei",  fn: () => innertubeGetAudioUrl(videoId)  },
+    { name: "Cobalt",    fn: () => cobaltGetAudioUrl(videoId)     },
+    { name: "Piped",     fn: () => pipedGetAudioUrl(videoId)      },
+    { name: "Invidious", fn: () => invidiousGetAudioUrl(videoId)  },
+    // yt-dlp before ytdl-core: yt-dlp handles anti-bot; ytdl-core URLs 403 on pipe
+    { name: "yt-dlp",    fn: () => ytdlpGetAudioUrl(videoId)      },
+    { name: "ytdl-core", fn: () => ytdlCoreGetAudioUrl(videoId)   },
   ];
 
   let lastErr;
@@ -520,9 +530,9 @@ async function resolveAudioUrl(videoId) {
       const result = await fn();
       setCachedAudio(videoId, result.url, result.contentType, name);
       console.log(`[YT] resolved ${videoId} via ${name}`);
-      return { ...result, via: name }; // include via for stream endpoint routing
+      return { ...result, via: name };
     } catch (err) {
-      console.warn(`[YT] ${name} failed for ${videoId}: ${err.message}`);
+      console.warn(`[YT] ${name} failed for ${videoId}: ${err.message?.slice(0,80)}`);
       lastErr = err;
     }
   }
@@ -821,14 +831,38 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
     return res.status(400).json({ error: "Invalid videoId" });
   }
 
+  // ── PRE-FLIGHT: try Saavn via oEmbed title BEFORE the heavy YT resolver chain.
+  // Render cloud IPs are often blocked by YouTube. oEmbed is not IP-restricted.
+  // This saves 10-30s and avoids the 500 for Indian tracks.
+  try {
+    const oEmbedRes = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (oEmbedRes.ok) {
+      const { title: vtitle } = await oEmbedRes.json();
+      if (vtitle) {
+        try {
+          const saavn = await saavnSearch(vtitle); // multi-query variant for best hit-rate
+          console.log(`[YT stream] Saavn pre-flight ✓ for ${id}: "${vtitle}"`);
+          res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
+          return res.redirect(302, saavn.url);
+        } catch (saavnPreErr) {
+          console.warn(`[YT stream] Saavn pre-flight miss for "${vtitle}": ${saavnPreErr.message?.slice(0, 60)}`);
+        }
+      }
+    }
+  } catch (oembedErr) {
+    console.warn(`[YT stream] oEmbed pre-flight failed for ${id}: ${oembedErr.message?.slice(0, 60)}`);
+  }
+
   let entry;
   try {
     entry = await resolveAudioUrl(id);
   } catch (err) {
     console.warn(`[YT stream] All methods failed for ${id}: ${err.message}`);
 
-    // Last resort: get video title via YouTube oEmbed (works from any IP)
-    // then search JioSaavn — covers Indian music reliably
+    // Last resort: try Saavn one more time with a fresh oEmbed lookup
     try {
       const oEmbedRes = await fetch(
         `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
@@ -837,42 +871,60 @@ app.get("/api/youtube/stream", wrap(async (req, res) => {
       if (oEmbedRes.ok) {
         const { title: vtitle } = await oEmbedRes.json();
         if (vtitle) {
-          const saavn = await saavnGetAudioUrl(vtitle);
-          console.log(`[YT stream] oEmbed+Saavn fallback OK for ${id}: ${vtitle}`);
+          const saavn = await saavnSearch(vtitle);
+          console.log(`[YT stream] oEmbed+Saavn last-resort OK for ${id}: "${vtitle}"`);
           res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
           return res.redirect(302, saavn.url);
         }
       }
     } catch (saavnErr) {
-      console.warn(`[YT stream] oEmbed+Saavn fallback failed for ${id}:`, saavnErr.message);
+      console.warn(`[YT stream] oEmbed+Saavn last-resort failed for ${id}:`, saavnErr.message);
     }
 
     return res.status(500).json({ error: "Audio unavailable", detail: err.message });
   }
 
-  // ytdl-core: pipe audio stream directly from YouTube.
-  // This avoids the expired-URL / 403 problem because ytdl re-fetches
-  // in real time from inside the server process (same IP as the request).
-  if (entry.via === "ytdl-core") {
-    res.set({
-      "Content-Type":               entry.contentType || "audio/mp4",
-      "Accept-Ranges":              "bytes",
-      "Transfer-Encoding":          "chunked",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control":              "no-store",
-    });
-    const ytStream = ytdl(`https://www.youtube.com/watch?v=${id}`, {
-      filter: "audioonly",
-      quality: "highestaudio",
-      agent:   YTDL_AGENT,
-    });
-    ytStream.on("error", (err) => {
-      console.warn(`[YT stream] ytdl pipe error: ${err.message}`);
-      try { if (!res.headersSent) res.status(500).end(); else res.end(); } catch (_) {}
-    });
-    req.on("close", () => { try { ytStream.destroy(); } catch (_) {} });
-    ytStream.pipe(res);
-    return;
+  // For ytdl-core or yt-dlp resolved URLs: stream via yt-dlp which handles
+  // anti-bot detection better than piping ytdl directly (ytdl gets 403).
+  // yt-dlp is available as: python -m yt_dlp
+  if (entry.via === "ytdl-core" || entry.via === "yt-dlp") {
+    try {
+      const ytdlpResolved = await resolveYtdlpCommand();
+      const ytdlpArgs = [
+        ...ytdlpResolved.baseArgs,
+        "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+        "--no-playlist",
+        "-o", "-", // stdout
+        `https://www.youtube.com/watch?v=${id}`,
+      ];
+      console.log(`[YT stream] piping via yt-dlp for ${id}`);
+      res.set({
+        "Content-Type":               entry.contentType || "audio/mp4",
+        "Accept-Ranges":              "bytes",
+        "Transfer-Encoding":          "chunked",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control":              "no-store",
+      });
+      const proc = spawn(ytdlpResolved.cmd, ytdlpArgs, { stdio: ["ignore", "pipe", "pipe"] });
+      proc.stderr.on("data", d => {
+        const line = d.toString().trim();
+        if (line) console.warn("[yt-dlp stderr]", line.slice(0, 120));
+      });
+      proc.on("error", err => {
+        console.warn("[yt-dlp spawn error]", err.message);
+        try { if (!res.headersSent) res.status(500).end(); else res.end(); } catch (_) {}
+      });
+      proc.on("close", code => {
+        if (code !== 0) console.warn(`[yt-dlp] exited ${code} for ${id}`);
+        try { res.end(); } catch (_) {}
+      });
+      req.on("close", () => { try { proc.kill(); } catch (_) {} });
+      proc.stdout.pipe(res);
+      return;
+    } catch (ytdlpErr) {
+      console.warn(`[YT stream] yt-dlp pipe setup failed: ${ytdlpErr.message}`);
+      // Fall through to redirect if yt-dlp setup fails
+    }
   }
 
   // All other sources (Cobalt / Piped / Invidious / Saavn CDN):
@@ -1267,12 +1319,28 @@ app.use("/api/{*path}", (_req, res) => res.status(404).json({ error: "Not found"
 // ══════════════════════════════════════════════════════════════════════
 //  Start
 // ══════════════════════════════════════════════════════════════════════
-mongoose.connect(mongoURI)
+// Start HTTP immediately so Vite proxy doesn't get ECONNREFUSED
+const server = app.listen(port, () => {
+  console.log(`✓ Auralis API at http://localhost:${port}`);
+  console.log("  🎵 YouTube full tracks · iTunes catalog · Malayalam/Tamil/Hindi/English");
+});
+// Prevent keep-alive connections from blocking graceful shutdown
+server.keepAliveTimeout = 65000;
+server.headersTimeout   = 66000;
+
+// Connect to MongoDB in the background
+mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 30000 })
   .then(() => {
     console.log("✓ MongoDB connected");
-    app.listen(port, () => {
-      console.log(`✓ Auralis API at http://localhost:${port}`);
-      console.log("  🎵 YouTube full tracks · iTunes catalog · Malayalam/Tamil/Hindi/English");
-    });
+    dbReady = true;
   })
-  .catch(e => { console.error("✗ MongoDB:", e.message); process.exit(1); });
+  .catch(e => {
+    console.error("✗ MongoDB connection failed:", e.message);
+    console.warn("  → DB-dependent routes will return 503 until connection succeeds.");
+    // Retry every 30s
+    const retry = setInterval(() => {
+      mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 30000 })
+        .then(() => { console.log("✓ MongoDB reconnected"); dbReady = true; clearInterval(retry); })
+        .catch(err => console.error("✗ MongoDB retry failed:", err.message));
+    }, 30000);
+  });

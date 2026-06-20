@@ -30,8 +30,29 @@ export function useAudioEngine(currentTrack, preferences) {
       console.warn('[Audio error]', e.target?.error?.code, e.target?.error?.message);
       setIsPlaying(false);
     };
-    const onStall   = () => console.warn('[Audio stall] network stall on', audio.src?.slice(-40));
     const onWaiting = () => console.info('[Audio waiting] buffering…');
+
+    // ── Stall recovery: reload the src (triggers a fresh /api/youtube/stream redirect) ──
+    let stallTimer = null;
+    const onStall = () => {
+      console.warn('[Audio stall] network stall on', audio.src?.slice(-60));
+      clearTimeout(stallTimer);
+      // Give it 4 seconds before forcing a reload
+      stallTimer = setTimeout(() => {
+        if (audio.paused) return; // user paused — don't reload
+        const currentSrc  = audio.src;
+        const currentTime = audio.currentTime || 0;
+        console.warn('[Audio stall] forcing reload of', currentSrc?.slice(-60));
+        const onCanPlayAfterStall = () => {
+          audio.removeEventListener('canplay', onCanPlayAfterStall);
+          // Seek back to where we were (best-effort; CDN URLs reset to 0)
+          try { if (currentTime > 2) audio.currentTime = currentTime; } catch (_) {}
+          audio.play().catch(e => console.warn('[stall-recovery play]', e.message));
+        };
+        audio.addEventListener('canplay', onCanPlayAfterStall);
+        audio.load();
+      }, 4000);
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('play',       onPlay);
@@ -42,6 +63,7 @@ export function useAudioEngine(currentTrack, preferences) {
     audio.addEventListener('waiting',    onWaiting);
 
     return () => {
+      clearTimeout(stallTimer);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('play',       onPlay);
       audio.removeEventListener('pause',      onPause);
