@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { artProxy } from '../../utils/audioHelpers';
 
 const PLACEHOLDER_COLORS = [
   ['#1db954', '#191414'],
@@ -18,7 +19,7 @@ export function TrackCard({ track, isActive, isResolving, onPlay, index = 0 }) {
   const [imgError, setImgError] = useState(false);
   const colors = PLACEHOLDER_COLORS[index % PLACEHOLDER_COLORS.length];
   const artSrc = track.artworkUrl && !imgError
-    ? `/api/artwork?url=${encodeURIComponent(track.artworkUrl)}`
+    ? artProxy(track.artworkUrl)
     : null;
 
   return (

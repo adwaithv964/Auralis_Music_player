@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { artProxy } from '../../utils/audioHelpers';
 
 /**
  * QuickAccessCard — Compact Spotify-style pill card for the 2×3 top grid
@@ -17,7 +18,7 @@ export function QuickAccessCard({ track, isActive, onPlay, index = 0 }) {
     >
       {track.artworkUrl ? (
         <img
-          src={`/api/artwork?url=${encodeURIComponent(track.artworkUrl)}`}
+          src={artProxy(track.artworkUrl)}
           alt={track.title}
           className="quick-card-art"
         />

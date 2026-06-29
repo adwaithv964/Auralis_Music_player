@@ -13,8 +13,29 @@ export function fmt(secs) {
 export function artProxy(url) {
   if (!url) return '';
   if (url.startsWith('/api/')) return url;
+
+  // These CDNs are public and accessible directly from browsers — no proxy needed.
+  // Routing them through the server causes 500s because the CDN blocks server UA / IPs.
+  const DIRECT_CDN_PATTERNS = [
+    'mzstatic.com',       // Apple Music / iTunes
+    'last.fm',            // Last.fm
+    'lastfm.freetls.fastly.net', // Last.fm Fastly CDN
+    'saavn.com',          // JioSaavn
+    'jiosaavn.com',
+    'c.saavncdn.com',
+    'i.scdn.co',          // Spotify CDN
+    'image.tmdb.org',
+  ];
+  try {
+    const { hostname } = new URL(url);
+    if (DIRECT_CDN_PATTERNS.some(p => hostname === p || hostname.endsWith(`.${p}`))) {
+      return url; // load directly — no proxy
+    }
+  } catch (_) { /* fall through */ }
+
   return `/api/artwork?url=${encodeURIComponent(url)}`;
 }
+
 
 // ─── Track guards ─────────────────────────────────────────────
 /** True if the track has a playable audio URL OR can be resolved on demand */

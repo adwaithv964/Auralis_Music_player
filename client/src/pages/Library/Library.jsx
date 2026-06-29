@@ -212,7 +212,7 @@ export function Library() {
                   <div className="pl-col-title pl-track-info">
                     {t.artworkUrl ? (
                       <img
-                        src={`/api/artwork?url=${encodeURIComponent(t.artworkUrl)}`}
+                        src={artProxy(t.artworkUrl)}
                         alt={t.title}
                         className="pl-track-art"
                       />
@@ -401,7 +401,7 @@ export function Library() {
                 </div>
                 <div className="pl-col-title pl-track-info">
                   {t.artworkUrl ? (
-                    <img src={`/api/artwork?url=${encodeURIComponent(t.artworkUrl)}`}
+                    <img src={artProxy(t.artworkUrl)}
                       alt={t.title} className="pl-track-art"/>
                   ) : (
                     <div className="pl-track-art pl-track-art--empty">

@@ -45,7 +45,7 @@ const MOOD_CARDS = [
 export function Home() {
   const {
     language, setLanguage, setMood, mood,
-    setMobileNavOpen, setView,
+    setMobileNavOpen, setView, navigateTo,
     externalTracks, isLoadingExt, extPage,
     doLoadExternal,
     searchQuery, setSearchQuery,
@@ -206,18 +206,18 @@ export function Home() {
 
   const handleSuggestionPick = useCallback((track) => {
     setSearchQuery(track.title);
-    setView('search');
+    navigateTo('search');
     setShowSuggestions(false);
     handlePlay(track);
     doLoadExternal(language, mood, 0, track.title);
-  }, [language, mood, handlePlay, doLoadExternal, setSearchQuery, setView, setShowSuggestions]);
+  }, [language, mood, handlePlay, doLoadExternal, setSearchQuery, navigateTo, setShowSuggestions]);
 
   const handleSearchSubmit = useCallback((e) => {
     e.preventDefault();
-    setView('search');
+    navigateTo('search');
     setShowSuggestions(false);
     doLoadExternal(language, mood, 0, searchQuery);
-  }, [language, mood, searchQuery, setView, setShowSuggestions, doLoadExternal]);
+  }, [language, mood, searchQuery, navigateTo, setShowSuggestions, doLoadExternal]);
 
   // ── Loading skeleton ─────────────────────────────────────────
   const isFirstLoad = isLoadingExt && extPlayable.length === 0;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { artProxy } from '../../utils/audioHelpers';
 
 const COLORS = [
   '#7c3aed','#1db954','#ec4899','#f59e0b','#06b6d4','#ef4444','#10b981','#8b5cf6',
@@ -12,7 +13,7 @@ export function ArtistCard({ name, artworkUrl, index = 0, onClick }) {
   const [imgError, setImgError] = useState(false);
   const color = COLORS[index % COLORS.length];
   const src = artworkUrl && !imgError
-    ? `/api/artwork?url=${encodeURIComponent(artworkUrl)}`
+    ? artProxy(artworkUrl)
     : null;
 
   return (

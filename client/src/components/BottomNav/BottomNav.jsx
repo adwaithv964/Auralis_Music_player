@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { artProxy }  from '../../utils/audioHelpers';
@@ -9,7 +10,7 @@ import { artProxy }  from '../../utils/audioHelpers';
  *  - Three navigation tabs: Home, Search, Your Library
  */
 export function BottomNav() {
-  const { view, setView, setMobileNowOpen } = useApp();
+  const { view, navigateTo, setMobileNowOpen } = useApp();
   const {
     currentTrack,
     isPlaying,
@@ -19,6 +20,25 @@ export function BottomNav() {
     togglePlay,
     toggleFavorite,
   } = usePlayer();
+
+  // ── Double-tap Home → scroll to top ────────────────────────
+  const lastHomeTapRef = useRef(0);
+
+  const handleHomeTap = () => {
+    const now = Date.now();
+    if (view === 'home' && now - lastHomeTapRef.current < 300) {
+      // Double-tap on Home while already on Home → scroll to top
+      const mainArea = document.querySelector('.main-area');
+      if (mainArea) {
+        mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } else {
+      navigateTo('home');
+    }
+    lastHomeTapRef.current = now;
+  };
 
   const coverBgInline = currentTrack?.artworkUrl
     ? `url(${artProxy(currentTrack.artworkUrl)}) center/cover`
@@ -113,7 +133,7 @@ export function BottomNav() {
           <button
             key={id}
             className={`bottom-nav-tab${view === id ? ' bottom-nav-tab--active' : ''}`}
-            onClick={() => setView(id)}
+            onClick={id === 'home' ? handleHomeTap : () => navigateTo(id)}
           >
             <span className="bottom-nav-icon">{icon}</span>
             <span className="bottom-nav-label">{label}</span>

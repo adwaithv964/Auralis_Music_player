@@ -21,9 +21,15 @@ const SOURCE_COLORS = {
 export function TrendingCard({ track, index, isActive, isResolving, onPlay }) {
   const [imgErr, setImgErr] = useState(false);
 
+  /** Generate an inline SVG placeholder — no external request, no 404 */
+  const svgFallback = (letter) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="#1a1a2e"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="120" font-family="system-ui,sans-serif" fill="#7cc7ff">${letter}</text></svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  };
+
   const artwork = !imgErr && track.artworkUrl
     ? artProxy(track.artworkUrl)
-    : `https://via.placeholder.com/300x300/1a1a2e/7cc7ff?text=${encodeURIComponent(track.title?.charAt(0) || '♪')}`;
+    : svgFallback(track.title?.charAt(0) || '♪');
 
   const source  = track.sources?.[0] || 'iTunes';
   const srcColor = SOURCE_COLORS[source] || '#7cc7ff';

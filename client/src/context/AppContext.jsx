@@ -38,6 +38,26 @@ function withRetry(fn, maxRetries = 4, baseDelayMs = 1500) {
 export function AppProvider({ children }) {
   // ── Navigation ───────────────────────────────────────────────
   const [view,          setView]          = useState('home');
+  // Stack of views visited so we can go back (newest at end)
+  const navHistoryRef = useRef(['home']);
+
+  /** Navigate to a new view, pushing a browser history entry */
+  const navigateTo = useCallback((newView) => {
+    if (newView === navHistoryRef.current[navHistoryRef.current.length - 1]) return;
+    navHistoryRef.current = [...navHistoryRef.current, newView];
+    window.history.pushState({ view: newView }, '', `#${newView}`);
+    setView(newView);
+  }, []);
+
+  /** Go back one step in the in-app history stack */
+  const navigateBack = useCallback(() => {
+    const stack = navHistoryRef.current;
+    if (stack.length <= 1) return false; // nothing to go back to
+    const prev = stack[stack.length - 2];
+    navHistoryRef.current = stack.slice(0, -1);
+    setView(prev);
+    return true;
+  }, []);
 
   // ── Mobile panel states ──────────────────────────────────────
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -222,7 +242,7 @@ export function AppProvider({ children }) {
 
   const value = {
     // Navigation
-    view, setView,
+    view, setView, navigateTo, navigateBack,
     // Mobile overlays
     mobileNavOpen, setMobileNavOpen,
     mobileNowOpen, setMobileNowOpen,

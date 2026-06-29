@@ -20,13 +20,15 @@ import { trackHasAudio, isFullSong } from '../utils/audioHelpers';
 
 export const PlayerContext = createContext(null);
 
-const LS_KEY = 'auralis:lastTrack';
+const LS_KEY        = 'auralis:lastTrack';
+const LS_POS_KEY    = 'auralis:lastPosition';
+const LS_STREAM_KEY = 'auralis:streamCache'; // short-lived: cleared after use
 
 /** Save a lightweight snapshot.
  *  - Audius / local tracks: keep previewUrl (stable URLs)
  *  - YouTube CDN URLs: omit (they expire in ~6 hours)
  */
-function saveLastTrack(track) {
+function saveLastTrack(track, positionSec = 0) {
   if (!track) return;
   try {
     const isStableUrl = track.sourceType === 'audius' || track.sourceType === 'local';
@@ -44,8 +46,37 @@ function saveLastTrack(track) {
       // Keep previewUrl only for non-expiring sources
       ...(isStableUrl && track.previewUrl ? { previewUrl: track.previewUrl } : {}),
     };
-    localStorage.setItem(LS_KEY, JSON.stringify(snap));
+    localStorage.setItem(LS_KEY,     JSON.stringify(snap));
+    localStorage.setItem(LS_POS_KEY, String(Math.floor(positionSec || 0)));
   } catch {}
+}
+
+/** Cache the live YouTube stream URL right before unload so we can restore instantly */
+function saveStreamCache(streamUrl, positionSec) {
+  try {
+    localStorage.setItem(LS_STREAM_KEY, JSON.stringify({
+      url:       streamUrl,
+      position:  Math.floor(positionSec || 0),
+      savedAt:   Date.now(),
+    }));
+  } catch {}
+}
+
+/** Load the cached stream — only valid if saved less than 90 seconds ago */
+function loadStreamCache() {
+  try {
+    const raw = localStorage.getItem(LS_STREAM_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    // YouTube stream URLs are valid for ~6 hours, but to be safe use within 90s
+    if (Date.now() - obj.savedAt > 90_000) {
+      localStorage.removeItem(LS_STREAM_KEY);
+      return null;
+    }
+    return obj; // { url, position }
+  } catch {
+    return null;
+  }
 }
 
 function loadLastTrack() {
@@ -54,6 +85,15 @@ function loadLastTrack() {
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
+  }
+}
+
+function loadLastPosition() {
+  try {
+    const raw = localStorage.getItem(LS_POS_KEY);
+    return raw ? parseInt(raw, 10) : 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -81,18 +121,18 @@ export function PlayerProvider({ children }) {
   const [resolvingId,  setResolvingId]     = useState(null);
   const [queue,        setQueue]           = useState([]);   // up-next queue
 
-  /** Wrap setCurrentTrack so every change is persisted */
-  const setCurrentTrack = useCallback((track) => {
-    setCurrentTrackRaw(track);
-    if (track) saveLastTrack(track);
-  }, []);
-
   /** Memoize resolved YouTube stream URLs to avoid re-resolving */
   const resolvedCache = useRef(new Map());
 
-  // ── Audio engine ─────────────────────────────────────────────
+  // ── Audio engine — must be declared BEFORE setCurrentTrack ───
   const { isPlaying, play, pause, seek, progress, elapsed, duration, audioRef } =
     useAudioEngine(currentTrack, prefs);
+
+  /** Wrap setCurrentTrack so every change is persisted */
+  const setCurrentTrack = useCallback((track) => {
+    setCurrentTrackRaw(track);
+    if (track) saveLastTrack(track, audioRef.current?.currentTime);
+  }, [audioRef]);
 
 
   // ── Derived: all tracks the player can queue ─────────────────
@@ -152,22 +192,36 @@ export function PlayerProvider({ children }) {
       return;
     }
 
-    // iTunes track OR history snapshot (no previewUrl) → resolve fresh YouTube stream
+    // iTunes track OR history snapshot (no previewUrl) → resolve via JioSaavn
     pause();
     setCurrentTrack({ ...track, previewUrl: '', ytLoading: true });
     setResolvingId(track.id);
 
     try {
-      const yt = await api.resolveYouTube(track.title, track.artist);
-      if (yt?.streamUrl) {
+      const res = await fetch(
+        `/api/saavn/stream?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist || '')}`
+      );
+
+      if (res.status === 404) {
+        // Track not on JioSaavn — show it as unavailable instead of silent failure
+        console.warn('[JioSaavn] Track not found:', track.title);
+        setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
+        setResolvingId(null);
+        return;
+      }
+
+      if (!res.ok) throw new Error(`Saavn resolve failed: ${res.status}`);
+
+      const saavn = await res.json();
+      if (saavn?.streamUrl) {
         const fullTrack = {
           ...track,
-          previewUrl:  yt.streamUrl,
+          previewUrl:  saavn.streamUrl,
           isFull:      true,
           ytResolved:  true,
-          videoId:     yt.videoId,
           sourceType:  'itunes',
-          lyrics:      ['Full track via YouTube', track.artist, track.album],
+          contentType: saavn.contentType || 'audio/mp4',
+          lyrics:      ['Full track via JioSaavn', track.artist, track.album],
         };
         resolvedCache.current.set(track.id, fullTrack);
         setCurrentTrack(fullTrack);
@@ -175,12 +229,13 @@ export function PlayerProvider({ children }) {
         pushHistory(fullTrack);
       }
     } catch (e) {
-      console.warn('[YouTube resolve failed]', e.message);
-      setCurrentTrack(null);
+      console.warn('[JioSaavn resolve failed]', e.message);
+      setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
     } finally {
       setResolvingId(null);
     }
   }, [play, pause, setPlayHistory]);
+
 
   // ── Previous track ───────────────────────────────────────────
   const handlePrev = useCallback(() => {
@@ -223,6 +278,89 @@ export function PlayerProvider({ children }) {
     audio.addEventListener('ended', onEnded);
     return () => audio.removeEventListener('ended', onEnded);
   }, [audioRef, handleNext]);
+
+  // ── Save playback position periodically (every 5s) ───────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const audio = audioRef.current;
+      if (audio && !audio.paused && currentTrack) {
+        localStorage.setItem(LS_POS_KEY, String(Math.floor(audio.currentTime || 0)));
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [audioRef, currentTrack]);
+
+  // ── Save stream URL on page unload (for instant restore after refresh) ─
+  useEffect(() => {
+    const onUnload = () => {
+      const audio = audioRef.current;
+      if (!audio || !currentTrack) return;
+      const src = audio.src;
+      const pos = audio.currentTime || 0;
+      // Save exact position
+      localStorage.setItem(LS_POS_KEY, String(Math.floor(pos)));
+      // Cache the live stream URL for quick restore (YouTube URLs are valid for hours)
+      if (src && !audio.paused && (src.includes('youtube') || src.includes('googlevideo') || src.includes('localhost'))) {
+        saveStreamCache(src, pos);
+      }
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [audioRef, currentTrack]);
+
+  // ── Auto-resume on mount: use cached stream or re-resolve ────
+  const didAutoResume = useRef(false);
+  useEffect(() => {
+    if (didAutoResume.current) return;
+    const saved = loadLastTrack();
+    if (!saved) return;
+    didAutoResume.current = true;
+
+    const streamCache = loadStreamCache();
+
+    // ★ FAST PATH: we have a fresh cached stream URL — skip re-resolution entirely
+    if (streamCache?.url) {
+      localStorage.removeItem(LS_STREAM_KEY); // consume it
+      const cachedPos = streamCache.position || 0;
+      const fullTrack = {
+        ...saved,
+        previewUrl:  streamCache.url,
+        isFull:      true,
+        ytResolved:  true,
+        sourceType:  saved.sourceType || 'itunes',
+      };
+      setCurrentTrackRaw(fullTrack);
+      // Wait for audio to be ready, then seek + play
+      const audio = audioRef.current;
+      const onCanPlay = () => {
+        audio.removeEventListener('canplay', onCanPlay);
+        if (cachedPos > 4) {
+          try { audio.currentTime = cachedPos; } catch (_) {}
+        }
+        audio.play().catch(e => console.warn('[auto-resume]', e.message));
+      };
+      audio.addEventListener('canplay', onCanPlay);
+      return;
+    }
+
+    // Stable URL tracks (Audius / local): restore + seek
+    if (saved.previewUrl && (saved.sourceType === 'audius' || saved.sourceType === 'local')) {
+      const savedPos = loadLastPosition();
+      if (savedPos > 4) {
+        const onCanPlay = () => {
+          audioRef.current?.removeEventListener('canplay', onCanPlay);
+          try { audioRef.current.currentTime = savedPos; } catch (_) {}
+        };
+        audioRef.current?.addEventListener('canplay', onCanPlay);
+      }
+      handlePlay(saved);
+      return;
+    }
+
+    // iTunes / YouTube: resolve fresh stream then play
+    handlePlay(saved);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // Intentionally run once on mount only
 
   // ── Toggle favorite (API + local state sync) ─────────────────
   const toggleFavorite = useCallback(async (id) => {

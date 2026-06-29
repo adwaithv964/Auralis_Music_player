@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp }        from './context/AppContext';
+
 import { Sidebar }       from './components/Sidebar/Sidebar';
 import { NowPlaying }    from './components/NowPlaying/NowPlaying';
 import { PlayerBar }     from './components/PlayerBar/PlayerBar';
@@ -18,7 +19,8 @@ const NAV_FULL = 186;   // px — sidebar expanded width
 const NAV_COLL = 62;    // px — sidebar collapsed (icon-only) width
 
 export function AppShell() {
-  const { view, showPrefs, setShowPrefs, prefs, setPrefs } = useApp();
+  const { view, showPrefs, setShowPrefs, prefs, setPrefs, navigateBack } = useApp();
+
 
   // ── Left sidebar collapse ────────────────────────────────────
   const [collapsed, setCollapsed] = useState(false);
@@ -57,6 +59,26 @@ export function AppShell() {
       window.removeEventListener('mouseup',   onUp);
     };
   }, []);
+
+  // ── Browser back-button intercept ─────────────────────────────
+  useEffect(() => {
+    // Seed an initial history entry so the first back press is interceptable
+    window.history.replaceState({ view: 'home' }, '', '#home');
+
+    const handlePopState = (e) => {
+      const wentBack = navigateBack();
+      if (!wentBack) {
+        // No in-app history left — re-push so the next press doesn't exit
+        window.history.pushState({ view: 'home' }, '', '#home');
+      } else {
+        // Keep browser stack in sync with our internal stack
+        window.history.pushState(e.state, '', window.location.hash);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [navigateBack]);
 
   const navWidth = collapsed ? NAV_COLL : NAV_FULL;
 
@@ -116,3 +138,4 @@ export function AppShell() {
     </>
   );
 }
+
