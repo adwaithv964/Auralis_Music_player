@@ -194,7 +194,10 @@ export function Home() {
         .slice(0, 3);
       try {
         const ext = await api.searchExternal(q, language, 0, mood);
-        const combined = [...local, ...(ext.tracks || []).filter(trackHasAudio).slice(0, 5)];
+        // Deduplicate by ID so local + external can't produce duplicate keys
+        const seen = new Set();
+        const combined = [...local, ...(ext.tracks || []).filter(trackHasAudio).slice(0, 5)]
+          .filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
         setSuggestions(combined.slice(0, 7));
         setShowSuggestions(combined.length > 0);
       } catch {
@@ -365,7 +368,7 @@ export function Home() {
           <HomeSection title="Continue Listening" kicker="🕒 Recently played" delay={0.1}>
             {continueListening.map((t, i) => (
               <TrackCard
-                key={t.id}
+                key={`cl-${t.id}`}
                 track={t}
                 index={i}
                 isActive={currentTrack?.id === t.id}
@@ -404,7 +407,7 @@ export function Home() {
           <HomeSection title="New Releases" kicker="🆕 Fresh drops" delay={0.25}>
             {newReleases.map((t, i) => (
               <TrackCard
-                key={t.id} track={t} index={i}
+                key={`nr-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
                 onPlay={handlePlay}
@@ -420,7 +423,7 @@ export function Home() {
           <HomeSection title="Made For You" kicker="✨ Personalized picks" delay={0.3}>
             {madeForYou.map((t, i) => (
               <TrackCard
-                key={t.id} track={t} index={i}
+                key={`mfy-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
                 onPlay={handlePlay}
@@ -459,7 +462,7 @@ export function Home() {
           >
             {basedOnListening.map((t, i) => (
               <TrackCard
-                key={t.id} track={t} index={i}
+                key={`bol-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
                 onPlay={handlePlay}
@@ -479,7 +482,7 @@ export function Home() {
           >
             {dailyMix.map((t, i) => (
               <TrackCard
-                key={t.id} track={t} index={i}
+                key={`dm-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
                 onPlay={handlePlay}
@@ -499,7 +502,7 @@ export function Home() {
           >
             {fullSongsSection.map((t, i) => (
               <TrackCard
-                key={t.id} track={t} index={i}
+                key={`fs-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
                 onPlay={handlePlay}
@@ -537,7 +540,7 @@ export function Home() {
             <div className="home-album-grid">
               {stablePool.map((t, i) => (
                 <TrackCard
-                  key={t.id} track={t} index={i}
+                  key={`grid-${t.id}`} track={t} index={i}
                   isActive={currentTrack?.id === t.id}
                   isResolving={resolvingId === t.id}
                   onPlay={handlePlay}

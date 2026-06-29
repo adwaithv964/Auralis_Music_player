@@ -13,6 +13,15 @@ const TrackSnapshotSchema = new mongoose.Schema({
 }, { _id: false });
 
 const PlaylistSchema = new mongoose.Schema({
+  // ── Ownership ─────────────────────────────────────────────────
+  // References UserAuth._id. Required for all new playlists.
+  // Indexed for fast per-user queries.
+  userId: {
+    type:     mongoose.Schema.Types.ObjectId,
+    ref:      "UserAuth",
+    required: true,
+    index:    true,
+  },
   id:          { type: String, required: true, unique: true },
   name:        { type: String, required: true },
   description: { type: String, default: "" },
@@ -23,6 +32,9 @@ const PlaylistSchema = new mongoose.Schema({
   createdAt:   { type: Date, default: Date.now },
   updatedAt:   { type: Date, default: Date.now },
 });
+
+// Compound index for fast per-user sorted queries
+PlaylistSchema.index({ userId: 1, updatedAt: -1 });
 
 // Pre-save: update timestamps + auto-set coverUrl
 PlaylistSchema.pre("save", async function () {

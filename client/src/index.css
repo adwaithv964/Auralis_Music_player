@@ -195,6 +195,60 @@ button {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Danger action (e.g. logout) */
+.action-row--danger { color: var(--muted); }
+.action-row--danger:hover {
+  color: #ff6b6b !important;
+  background: rgba(255, 80, 80, 0.08) !important;
+}
+
+/* Sidebar user identity */
+.sidebar-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.04);
+  margin-bottom: 4px;
+}
+.sidebar-user-avatar {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0a0f0d;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-user-avatar--alone {
+  margin: 4px auto;
+  cursor: default;
+}
+.sidebar-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.sidebar-user-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-user-role {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+
 .nav-item.active {
   box-shadow: inset 3px 0 0 var(--accent);
 }

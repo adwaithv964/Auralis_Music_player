@@ -10,22 +10,33 @@
  *   - Track data (local + external)
  *   - Favorites list
  *   - Search state + doLoadExternal
+ *
+ * Auth isolation note:
+ *   AppProvider only mounts when the user is authenticated (see App.jsx).
+ *   On logout it unmounts entirely, wiping all state automatically.
+ *   On login it remounts fresh, re-running bootstrap for the new user.
  */
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback,
 } from 'react';
 import { api } from '../services/api';
+import { useAuth } from './AuthContext';
 import { trackHasAudio } from '../utils/audioHelpers';
 import { DEFAULT_PREFS } from '../utils/constants';
 
 export const AppContext = createContext(null);
 
 // ── Retry a promise-returning fn up to `maxRetries` times with exponential back-off ─
+// Auth errors (session expired) are NOT retried — they surface immediately.
 function withRetry(fn, maxRetries = 4, baseDelayMs = 1500) {
   return new Promise((resolve, reject) => {
     const attempt = (n) => {
       fn().then(resolve).catch(err => {
-        if (n >= maxRetries) { reject(err); return; }
+        // Don't retry auth errors — retrying won't help and delays UX
+        const isAuthError = err.message?.includes('Session expired') ||
+                            err.message?.includes('Authentication required') ||
+                            err.message?.includes('401');
+        if (n >= maxRetries || isAuthError) { reject(err); return; }
         const delay = baseDelayMs * Math.pow(2, n); // 1.5s, 3s, 6s, 12s
         console.warn(`[AppContext] retry ${n + 1}/${maxRetries} in ${delay}ms — ${err.message}`);
         setTimeout(() => attempt(n + 1), delay);
@@ -36,6 +47,9 @@ function withRetry(fn, maxRetries = 4, baseDelayMs = 1500) {
 }
 
 export function AppProvider({ children }) {
+  // ── Auth — for logout access and user identity ───────────────────────────
+  const { currentUser, logout: authLogout } = useAuth();
+
   // ── Navigation ───────────────────────────────────────────────
   const [view,          setView]          = useState('home');
   // Stack of views visited so we can go back (newest at end)
@@ -277,6 +291,9 @@ export function AppProvider({ children }) {
     isLoadingExt,
     extPage,
     doLoadExternal,
+    // Auth
+    currentUser,
+    logout: authLogout,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

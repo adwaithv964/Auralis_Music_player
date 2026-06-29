@@ -18,6 +18,8 @@ export function Sidebar({ collapsed = false, onToggleCollapse }) {
     setShowPrefs,
     playlists,
     prefs,
+    currentUser,
+    logout,
   } = useApp();
 
   return (
@@ -78,8 +80,31 @@ export function Sidebar({ collapsed = false, onToggleCollapse }) {
           </div>
         </div>
 
-        {/* Preferences */}
+        {/* ── User identity + actions ── */}
         <div className="sidebar-actions">
+          {/* User avatar / name */}
+          {currentUser && !collapsed && (
+            <div className="sidebar-user-row">
+              <div className="sidebar-user-avatar" aria-hidden="true">
+                {currentUser.username?.[0]?.toUpperCase() || 'U'}
+              </div>
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">{currentUser.username}</span>
+                <span className="sidebar-user-role">{currentUser.role || 'listener'}</span>
+              </div>
+            </div>
+          )}
+          {currentUser && collapsed && (
+            <div
+              className="sidebar-user-avatar sidebar-user-avatar--alone"
+              title={currentUser.username}
+              aria-label={`Logged in as ${currentUser.username}`}
+            >
+              {currentUser.username?.[0]?.toUpperCase() || 'U'}
+            </div>
+          )}
+
+          {/* Settings */}
           <button
             className="action-row"
             onClick={() => setShowPrefs(true)}
@@ -87,6 +112,19 @@ export function Sidebar({ collapsed = false, onToggleCollapse }) {
           >
             <svg><use href="#i-settings" /></svg>
             {!collapsed && <span>Preferences</span>}
+          </button>
+
+          {/* Logout */}
+          <button
+            className="action-row action-row--danger"
+            onClick={logout}
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {!collapsed && <span>Sign Out</span>}
           </button>
         </div>
 

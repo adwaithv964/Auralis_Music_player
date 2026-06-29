@@ -35,14 +35,39 @@ process.env.PATH = `${process.env.PATH}${path.delimiter}${extraPaths.join(path.d
 const Track    = require('./models/Track');
 const Playlist = require('./models/Playlist');
 const User     = require('./models/User');
+const UserAuth = require('./models/UserAuth');
 const { fetchTrending } = require('./trendingService');
+const { requireAuth }   = require('./middleware/auth');
+const jwt        = require('jsonwebtoken');
+const bcrypt     = require('bcryptjs');
+const cookieParser = require('cookie-parser');
+
+// ── JWT secrets ────────────────────────────────────────────────────────────
+const ACCESS_SECRET  = process.env.JWT_ACCESS_SECRET  || process.env.SESSION_SECRET || 'auralis-access-change-me';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.SESSION_SECRET || 'auralis-refresh-change-me';
+const ACCESS_TTL  = '15m';
+const REFRESH_TTL = '7d';
+
+/** Sign a short-lived access token */
+function signAccessToken(userId, role) {
+  return jwt.sign({ sub: String(userId), role }, ACCESS_SECRET, { expiresIn: ACCESS_TTL });
+}
+
+/** Sign a long-lived refresh token */
+function signRefreshToken(userId) {
+  return jwt.sign({ sub: String(userId) }, REFRESH_SECRET, { expiresIn: REFRESH_TTL });
+}
 
 const port     = process.env.PORT || 4173;
 const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/auralis";
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(cors({
+  origin: (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:4173').split(',').map(o => o.trim()),
+  credentials: true,
+}));
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 
 // "?"? Global 55-second request timeout (prevents Vite 502 on slow resolvers) "?
 app.use((req, res, next) => {
@@ -57,7 +82,7 @@ let dbReady = false;
 
 // Routes that need MongoDB ?" return 503 until connected
 const DB_ROUTES = ['/api/bootstrap', '/api/playlists', '/api/tracks', '/api/history',
-  '/api/favorites', '/api/library', '/api/preferences', '/api/excluded'];
+  '/api/favorites', '/api/library', '/api/preferences', '/api/excluded', '/api/auth'];
 
 app.use((req, res, next) => {
   if (!dbReady && DB_ROUTES.some(r => req.path.startsWith(r))) {
@@ -771,21 +796,206 @@ async function fetchAudiusTrending(genre, limit, offset) {
 // ??????????????????????????????????????????????????????????????????????
 //  Helpers
 // ??????????????????????????????????????????????????????????????????????
-async function getUser() {
-  let u = await User.findOne({ username: "defaultUser" });
-  if (!u) u = await new User({ username: "defaultUser" }).save();
+/**
+ * getUserByAuthId(authId)
+ * Finds-or-creates the User preferences/history document scoped to
+ * the authenticated user's UserAuth ObjectId.
+ * Called ONLY after requireAuth has set req.userId.
+ */
+async function getUserByAuthId(authId) {
+  let u = await User.findOne({ userId: authId });
+  if (!u) {
+    const auth = await UserAuth.findById(authId).select('username');
+    u = await new User({ userId: authId, username: auth?.username || '' }).save();
+  }
   return u;
 }
+
 function wrap(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
-    catch (e) { console.error("[API]", e.message); res.status(500).json({ error: e.message }); }
+    catch (e) { console.error('[API]', e.message); res.status(500).json({ error: e.message }); }
   };
 }
 
-// ??????????????????????????????????????????????????????????????????????
-//  Routes
-// ??????????????????????????????????????????????????????????????????????
+//  ? ? ? ? ? ? ? ?
+// ══════════════════════════════════════════════════════════════════════════════
+//  Auth Routes — /api/auth/*
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Helper: set HTTP-only refresh cookie */
+function setRefreshCookie(res, token) {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('auralis_refresh', token, {
+    httpOnly: true,
+    secure:   isProd,
+    sameSite: isProd ? 'Strict' : 'Lax', // Lax in dev so Vite proxy doesn't block it
+    maxAge:   7 * 24 * 60 * 60 * 1000,  // 7 days in ms
+    path:     '/',                        // '/' so cookie is sent on any /api/* path
+  });
+}
+
+/** Helper: clear refresh cookie */
+function clearRefreshCookie(res) {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.clearCookie('auralis_refresh', {
+    path:     '/',
+    sameSite: isProd ? 'Strict' : 'Lax',
+    secure:   isProd,
+  });
+}
+
+// POST /api/auth/register
+app.post('/api/auth/register', wrap(async (req, res) => {
+  const { username, email, password } = req.body;
+
+  // Validation
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'username, email and password are required' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  // Check uniqueness
+  const existing = await UserAuth.findOne({ $or: [{ email: email.toLowerCase() }, { username }] });
+  if (existing) {
+    const field = existing.email === email.toLowerCase() ? 'email' : 'username';
+    return res.status(409).json({ error: `This ${field} is already taken` });
+  }
+
+  // Hash password (salt rounds 12)
+  const passwordHash = await bcrypt.hash(password, 12);
+  const auth = await new UserAuth({ username, email: email.toLowerCase(), passwordHash }).save();
+
+  // Issue tokens
+  const accessToken  = signAccessToken(auth._id, auth.role);
+  const refreshToken = signRefreshToken(auth._id);
+  const hashedRT     = await bcrypt.hash(refreshToken, 10);
+  auth.refreshTokens.push(hashedRT);
+  await auth.save();
+
+  setRefreshCookie(res, refreshToken);
+  res.status(201).json({
+    accessToken,
+    user: { id: auth._id, username: auth.username, email: auth.email, role: auth.role },
+  });
+}));
+
+// POST /api/auth/login
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password are required' });
+  }
+
+  const auth = await UserAuth.findOne({ email: email.toLowerCase() }).select('+passwordHash +refreshTokens');
+  if (!auth) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  const valid = await bcrypt.compare(password, auth.passwordHash);
+  if (!valid) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  // Issue tokens
+  const accessToken  = signAccessToken(auth._id, auth.role);
+  const refreshToken = signRefreshToken(auth._id);
+  const hashedRT     = await bcrypt.hash(refreshToken, 10);
+
+  // Keep at most 5 refresh tokens (FIFO — rotate oldest out)
+  auth.refreshTokens.push(hashedRT);
+  if (auth.refreshTokens.length > 5) auth.refreshTokens.shift();
+  await auth.save();
+
+  setRefreshCookie(res, refreshToken);
+  res.json({
+    accessToken,
+    user: { id: auth._id, username: auth.username, email: auth.email, role: auth.role },
+  });
+}));
+
+// POST /api/auth/refresh — exchange refresh cookie for new access token
+app.post('/api/auth/refresh', wrap(async (req, res) => {
+  const token = req.cookies?.auralis_refresh;
+  if (!token) return res.status(401).json({ error: 'No refresh token' });
+
+  let payload;
+  try {
+    payload = jwt.verify(token, REFRESH_SECRET);
+  } catch {
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: 'Refresh token expired or invalid' });
+  }
+
+  const auth = await UserAuth.findById(payload.sub).select('+refreshTokens');
+  if (!auth) {
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  // Verify the incoming token matches one of the stored hashes
+  let matchIdx = -1;
+  for (let i = 0; i < auth.refreshTokens.length; i++) {
+    if (await bcrypt.compare(token, auth.refreshTokens[i])) { matchIdx = i; break; }
+  }
+  if (matchIdx === -1) {
+    // Possible token reuse — invalidate ALL tokens (security measure)
+    auth.refreshTokens = [];
+    await auth.save();
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: 'Refresh token reuse detected — please log in again' });
+  }
+
+  // Rotate: remove old, add new
+  const newRefreshToken = signRefreshToken(auth._id);
+  const hashedNewRT     = await bcrypt.hash(newRefreshToken, 10);
+  auth.refreshTokens.splice(matchIdx, 1, hashedNewRT);
+  if (auth.refreshTokens.length > 5) auth.refreshTokens.shift();
+  await auth.save();
+
+  setRefreshCookie(res, newRefreshToken);
+  res.json({
+    accessToken: signAccessToken(auth._id, auth.role),
+    user: { id: auth._id, username: auth.username, email: auth.email, role: auth.role },
+  });
+}));
+
+// POST /api/auth/logout — revoke refresh token + clear cookie
+app.post('/api/auth/logout', wrap(async (req, res) => {
+  const token = req.cookies?.auralis_refresh;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, REFRESH_SECRET);
+      const auth    = await UserAuth.findById(payload.sub).select('+refreshTokens');
+      if (auth) {
+        // Remove the matching hashed token
+        const results = await Promise.all(
+          auth.refreshTokens.map(h => bcrypt.compare(token, h))
+        );
+        auth.refreshTokens = auth.refreshTokens.filter((_, i) => !results[i]);
+        await auth.save();
+      }
+    } catch (_) { /* expired token on logout is fine — just clear the cookie */ }
+  }
+  clearRefreshCookie(res);
+  res.json({ ok: true });
+}));
+
+// GET /api/auth/me — return current user profile
+app.get('/api/auth/me', requireAuth, wrap(async (req, res) => {
+  const auth = await UserAuth.findById(req.userId);
+  if (!auth) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: auth }); // passwordHash and refreshTokens are stripped by toJSON transform
+}));
+
+// ══════════════════════════════════════════════════════════════════════════════
+
+//  ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
 
 
 // "?"? YouTube: resolve title+artist +' stream URL "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
@@ -1101,9 +1311,9 @@ app.get("/api/trending", wrap(async (req, res) => {
 }));
 
 // "?"? Bootstrap "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
-app.get("/api/bootstrap", wrap(async (req, res) => {
+app.get("/api/bootstrap", requireAuth, wrap(async (req, res) => {
   const [user, tracks] = await Promise.all([
-    getUser(),
+    getUserByAuthId(req.userId),
     Track.find({}).lean(),
   ]);
   // Sort history newest-first, cap at 50 for the client
@@ -1132,9 +1342,9 @@ app.post("/api/tracks", wrap(async (req, res) => {
   res.status(201).json({ track });
 }));
 
-// PATCH /api/preferences ?" merge partial updates (volume, language, shuffle, repeat, theme?)
-app.patch("/api/preferences", wrap(async (req, res) => {
-  const user = await getUser();
+// PATCH /api/preferences — merge partial updates (volume, language, shuffle, repeat, theme…)
+app.patch("/api/preferences", requireAuth, wrap(async (req, res) => {
+  const user = await getUserByAuthId(req.userId);
   // Merge only known/safe keys
   const allowed = [
     "theme", "accent", "glass", "crossfade", "quality", "suggestions",
@@ -1149,13 +1359,13 @@ app.patch("/api/preferences", wrap(async (req, res) => {
   res.json({ preferences: user.preferences });
 }));
 
-// POST /api/history ?" save a full track snapshot (fire-and-forget from client)
-app.post("/api/history", wrap(async (req, res) => {
+// POST /api/history — save a full track snapshot (fire-and-forget from client)
+app.post("/api/history", requireAuth, wrap(async (req, res) => {
   const { id, title, artist, album, artworkUrl, duration,
           genre, language, sourceType } = req.body;
   if (!id) return res.status(400).json({ error: "id required" });
 
-  const user = await getUser();
+  const user = await getUserByAuthId(req.userId);
 
   // Deduplicate: remove previous entry for this track so newest is always on top
   user.history = (user.history || []).filter(h => h.id !== id);
@@ -1175,16 +1385,16 @@ app.post("/api/history", wrap(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
-// GET /api/history ?" return last N played tracks
-app.get("/api/history", wrap(async (req, res) => {
+// GET /api/history — return last N played tracks
+app.get("/api/history", requireAuth, wrap(async (req, res) => {
   const limit = Math.min(50, Number(req.query.limit) || 20);
-  const user  = await getUser();
+  const user  = await getUserByAuthId(req.userId);
   const history = (user.history || []).slice(0, limit);
   res.json({ history });
 }));
 
-app.put("/api/favorites/:id", wrap(async (req, res) => {
-  const user = await getUser();
+app.put("/api/favorites/:id", requireAuth, wrap(async (req, res) => {
+  const user = await getUserByAuthId(req.userId);
   if (!user.favorites.includes(req.params.id)) user.favorites.push(req.params.id);
   if (!user.library.savedTrackIds.includes(req.params.id)) user.library.savedTrackIds.push(req.params.id);
   user.markModified("library");
@@ -1192,8 +1402,8 @@ app.put("/api/favorites/:id", wrap(async (req, res) => {
   res.json({ favorites: user.favorites });
 }));
 
-app.delete("/api/favorites/:id", wrap(async (req, res) => {
-  const user = await getUser();
+app.delete("/api/favorites/:id", requireAuth, wrap(async (req, res) => {
+  const user = await getUserByAuthId(req.userId);
   user.favorites             = user.favorites.filter(f => f !== req.params.id);
   user.library.savedTrackIds = user.library.savedTrackIds.filter(f => f !== req.params.id);
   user.markModified("library");
@@ -1201,11 +1411,11 @@ app.delete("/api/favorites/:id", wrap(async (req, res) => {
   res.json({ favorites: user.favorites });
 }));
 
-app.post("/api/library/tracks", wrap(async (req, res) => {
+app.post("/api/library/tracks", requireAuth, wrap(async (req, res) => {
   const trackData = req.body.track || req.body;
   if (!trackData?.id) return res.status(400).json({ error: "id required" });
   await Track.findOneAndUpdate({ id: trackData.id }, trackData, { upsert: true });
-  const user = await getUser();
+  const user = await getUserByAuthId(req.userId);
   const add  = (arr, v) => { if (!arr.includes(v)) arr.push(v); };
   add(user.favorites, trackData.id);
   add(user.library.savedTrackIds, trackData.id);
@@ -1218,10 +1428,10 @@ app.post("/api/library/tracks", wrap(async (req, res) => {
 }));
 
 // "?"? Excluded (taste profile) "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
-app.post("/api/excluded", wrap(async (req, res) => {
+app.post("/api/excluded", requireAuth, wrap(async (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: "id required" });
-  const user = await getUser();
+  const user = await getUserByAuthId(req.userId);
   if (!user.library.excludedTrackIds) user.library.excludedTrackIds = [];
   if (!user.library.excludedTrackIds.includes(id)) {
     user.library.excludedTrackIds.push(id);
@@ -1231,8 +1441,8 @@ app.post("/api/excluded", wrap(async (req, res) => {
   res.json({ excluded: user.library.excludedTrackIds });
 }));
 
-app.delete("/api/excluded/:id", wrap(async (req, res) => {
-  const user = await getUser();
+app.delete("/api/excluded/:id", requireAuth, wrap(async (req, res) => {
+  const user = await getUserByAuthId(req.userId);
   user.library.excludedTrackIds = (user.library.excludedTrackIds || [])
     .filter(x => x !== req.params.id);
   user.markModified("library");
@@ -1255,55 +1465,60 @@ function playlistJSON(pl) {
   return obj;
 }
 
-/** GET /api/playlists ?" list all playlists */
-app.get("/api/playlists", wrap(async (_req, res) => {
-  const docs = await Playlist.find({}).sort({ updatedAt: -1 });
+/** GET /api/playlists — list authenticated user's playlists only */
+app.get("/api/playlists", requireAuth, wrap(async (req, res) => {
+  const docs = await Playlist.find({ userId: req.userId }).sort({ updatedAt: -1 });
   res.json({ playlists: docs.map(playlistJSON) });
 }));
 
-/** POST /api/playlists ?" create a new playlist */
-app.post("/api/playlists", wrap(async (req, res) => {
+/** POST /api/playlists — create a new playlist owned by the authenticated user */
+app.post("/api/playlists", requireAuth, wrap(async (req, res) => {
   const { name, description = "", color = "#1db954" } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
   const id = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const playlist = new Playlist({ id, name: name.trim(), description, color, tracks: [] });
+  const playlist = new Playlist({ userId: req.userId, id, name: name.trim(), description, color, tracks: [] });
   await playlist.save();
   res.status(201).json({ playlist: playlistJSON(playlist) });
 }));
 
-/** GET /api/playlists/:id ?" get a single playlist with all tracks */
-app.get("/api/playlists/:id", wrap(async (req, res) => {
+/** GET /api/playlists/:id — get a single playlist (ownership check) */
+app.get("/api/playlists/:id", requireAuth, wrap(async (req, res) => {
   const playlist = await Playlist.findOne({ id: req.params.id });
   if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!playlist.userId.equals(req.userId)) return res.status(403).json({ error: "Access denied" });
   res.json({ playlist: playlistJSON(playlist) });
 }));
 
-/** PATCH /api/playlists/:id ?" rename / update a playlist */
-app.patch("/api/playlists/:id", wrap(async (req, res) => {
+/** PATCH /api/playlists/:id — rename / update a playlist (ownership check) */
+app.patch("/api/playlists/:id", requireAuth, wrap(async (req, res) => {
   const { name, description, color } = req.body;
-  const update = { updatedAt: new Date() };
-  if (name)                      update.name        = name.trim();
-  if (description !== undefined) update.description = description;
-  if (color)                     update.color       = color;
-  const playlist = await Playlist.findOneAndUpdate(
-    { id: req.params.id }, { $set: update }, { new: true }
-  );
+  const playlist = await Playlist.findOne({ id: req.params.id });
   if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!playlist.userId.equals(req.userId)) return res.status(403).json({ error: "Access denied" });
+  if (name)                      playlist.name        = name.trim();
+  if (description !== undefined) playlist.description = description;
+  if (color)                     playlist.color       = color;
+  playlist.updatedAt = new Date();
+  await playlist.save();
   res.json({ playlist: playlistJSON(playlist) });
 }));
 
-/** DELETE /api/playlists/:id ?" delete a playlist */
-app.delete("/api/playlists/:id", wrap(async (req, res) => {
+/** DELETE /api/playlists/:id — delete a playlist (ownership check) */
+app.delete("/api/playlists/:id", requireAuth, wrap(async (req, res) => {
+  const playlist = await Playlist.findOne({ id: req.params.id });
+  if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!playlist.userId.equals(req.userId)) return res.status(403).json({ error: "Access denied" });
   await Playlist.deleteOne({ id: req.params.id });
   res.json({ ok: true });
 }));
 
-/** POST /api/playlists/:id/tracks ?" add a track to a playlist */
-app.post("/api/playlists/:id/tracks", wrap(async (req, res) => {
+/** POST /api/playlists/:id/tracks — add a track to a playlist (ownership check) */
+app.post("/api/playlists/:id/tracks", requireAuth, wrap(async (req, res) => {
   const track = req.body.track;
   if (!track?.id) return res.status(400).json({ error: "track.id required" });
   const playlist = await Playlist.findOne({ id: req.params.id });
   if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!playlist.userId.equals(req.userId)) return res.status(403).json({ error: "Access denied" });
   if (!Array.isArray(playlist.tracks)) playlist.tracks = [];
   const alreadyIn = playlist.tracks.some(t => t && t.id === track.id);
   if (!alreadyIn) {
@@ -1315,10 +1530,11 @@ app.post("/api/playlists/:id/tracks", wrap(async (req, res) => {
   res.json({ playlist: playlistJSON(playlist), added: !alreadyIn });
 }));
 
-/** DELETE /api/playlists/:id/tracks/:trackId ?" remove a track from a playlist */
-app.delete("/api/playlists/:id/tracks/:trackId", wrap(async (req, res) => {
+/** DELETE /api/playlists/:id/tracks/:trackId — remove a track from a playlist (ownership check) */
+app.delete("/api/playlists/:id/tracks/:trackId", requireAuth, wrap(async (req, res) => {
   const playlist = await Playlist.findOne({ id: req.params.id });
   if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+  if (!playlist.userId.equals(req.userId)) return res.status(403).json({ error: "Access denied" });
   playlist.tracks = (Array.isArray(playlist.tracks) ? playlist.tracks : [])
     .filter(t => t && t.id !== req.params.trackId);
   playlist.markModified("tracks");

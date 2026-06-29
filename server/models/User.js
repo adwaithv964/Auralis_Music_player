@@ -15,7 +15,16 @@ const HistoryEntrySchema = new mongoose.Schema({
 }, { _id: false });
 
 const UserSchema = new mongoose.Schema({
-  username: { type: String, default: "defaultUser", unique: true },
+  // ── Identity: links to UserAuth document ──────────────────────
+  // This is the foreign key that binds preferences + history to an account.
+  userId: {
+    type:     mongoose.Schema.Types.ObjectId,
+    ref:      "UserAuth",
+    required: true,
+    unique:   true,
+    index:    true,
+  },
+  username: { type: String, default: "" }, // display copy, updated on login
 
   // ── Favorites ─────────────────────────────────────────────────
   favorites: [{ type: String }],
