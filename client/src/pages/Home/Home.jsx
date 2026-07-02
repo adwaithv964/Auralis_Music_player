@@ -57,7 +57,7 @@ export function Home() {
   } = useApp();
 
   const {
-    handlePlay, currentTrack, resolvingId,
+    handlePlay, currentTrack, resolvingId, setActiveQueueAndPlay,
   } = usePlayer();
 
   const debounceRef  = useRef(null);
@@ -211,7 +211,7 @@ export function Home() {
     setSearchQuery(track.title);
     navigateTo('search');
     setShowSuggestions(false);
-    handlePlay(track);
+    handlePlay(track); // handlePlay directly — search page will set its own queue after load
     doLoadExternal(language, mood, 0, track.title);
   }, [language, mood, handlePlay, doLoadExternal, setSearchQuery, navigateTo, setShowSuggestions]);
 
@@ -312,7 +312,7 @@ export function Home() {
                 key={t.id}
                 track={t}
                 isActive={currentTrack?.id === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(quickAccess, track)}
                 index={i}
               />
             ))}
@@ -373,7 +373,7 @@ export function Home() {
                 index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(continueListening, track)}
               />
             ))}
           </HomeSection>
@@ -410,7 +410,7 @@ export function Home() {
                 key={`nr-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(newReleases, track)}
               />
             ))}
           </HomeSection>
@@ -426,7 +426,7 @@ export function Home() {
                 key={`mfy-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(madeForYou, track)}
               />
             ))}
           </HomeSection>
@@ -465,7 +465,7 @@ export function Home() {
                 key={`bol-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(basedOnListening, track)}
               />
             ))}
           </HomeSection>
@@ -485,7 +485,7 @@ export function Home() {
                 key={`dm-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(dailyMix, track)}
               />
             ))}
           </HomeSection>
@@ -505,7 +505,7 @@ export function Home() {
                 key={`fs-${t.id}`} track={t} index={i}
                 isActive={currentTrack?.id === t.id}
                 isResolving={resolvingId === t.id}
-                onPlay={handlePlay}
+                onPlay={(track) => setActiveQueueAndPlay(fullSongsSection, track)}
               />
             ))}
           </HomeSection>
@@ -543,7 +543,7 @@ export function Home() {
                   key={`grid-${t.id}`} track={t} index={i}
                   isActive={currentTrack?.id === t.id}
                   isResolving={resolvingId === t.id}
-                  onPlay={handlePlay}
+                  onPlay={(track) => setActiveQueueAndPlay(stablePool, track)}
                 />
               ))}
             </div>

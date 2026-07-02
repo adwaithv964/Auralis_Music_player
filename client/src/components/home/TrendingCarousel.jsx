@@ -66,7 +66,7 @@ function SkeletonCards({ count = 6 }) {
 }
 
 function TrendingRow({ tracks, isLoading, emptyMsg }) {
-  const { handlePlay, currentTrack, resolvingId } = usePlayer();
+  const { currentTrack, resolvingId, setActiveQueueAndPlay } = usePlayer();
 
   if (isLoading) {
     return (
@@ -93,7 +93,7 @@ function TrendingRow({ tracks, isLoading, emptyMsg }) {
           index={i}
           isActive={currentTrack?.id === t.id}
           isResolving={resolvingId === t.id}
-          onPlay={handlePlay}
+          onPlay={(track) => setActiveQueueAndPlay(tracks, track)}
         />
       ))}
     </div>

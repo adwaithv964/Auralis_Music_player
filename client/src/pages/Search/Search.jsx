@@ -16,7 +16,7 @@ export function Search() {
     isLoadingExt, language, mood,
     doLoadExternal,
   } = useApp();
-  const { currentTrack, isPlaying, handlePlay } = usePlayer();
+  const { currentTrack, isPlaying, setActiveQueueAndPlay } = usePlayer();
 
   const playable     = [...localTracks.filter(trackHasAudio), ...externalTracks.filter(trackHasAudio)];
   const extPlayable  = externalTracks.filter(trackHasAudio);
@@ -48,7 +48,7 @@ export function Search() {
             index={i}
             isActive={currentTrack?.id === t.id}
             isPlaying={isPlaying}
-            onPlay={handlePlay}
+            onPlay={(track) => setActiveQueueAndPlay(searchResults, track)}
           />
         ))}
         {!isLoadingExt && searchResults.length === 0 && (

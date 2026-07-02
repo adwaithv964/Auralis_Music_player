@@ -16,7 +16,7 @@ import {
 import { useAudioEngine } from '../hooks/useAudioEngine';
 import { useApp }         from './AppContext';
 import { api }            from '../services/api';
-import { trackHasAudio, isFullSong } from '../utils/audioHelpers';
+import { trackHasAudio } from '../utils/audioHelpers';
 
 export const PlayerContext = createContext(null);
 
@@ -120,6 +120,7 @@ export function PlayerProvider({ children }) {
   const [repeat,       setRepeat]          = useState(false);
   const [resolvingId,  setResolvingId]     = useState(null);
   const [queue,        setQueue]           = useState([]);   // up-next queue
+  const [activeQueue,  setActiveQueue]     = useState([]);   // base list for playback
 
   /** Memoize resolved YouTube stream URLs to avoid re-resolving */
   const resolvedCache = useRef(new Map());
@@ -236,31 +237,66 @@ export function PlayerProvider({ children }) {
     }
   }, [play, pause, setPlayHistory]);
 
+  // ── Set active queue and start playback ──────────────────────
+  /**
+   * Primary entry point for starting playback from any source.
+   * Replaces the active queue with the given list and starts playing startTrack.
+   * All Next/Prev/auto-advance operations will then navigate within tracks[].
+   */
+  const setActiveQueueAndPlay = useCallback((tracks, startTrack) => {
+    if (!tracks || tracks.length === 0) return;
+    setActiveQueue(tracks);
+    handlePlay(startTrack || tracks[0]);
+  }, [handlePlay]);
 
   // ── Previous track ───────────────────────────────────────────
   const handlePrev = useCallback(() => {
-    if (!playableTracks.length) return;
-    const idx = playableTracks.findIndex(t => t.id === currentTrack?.id);
-    handlePlay(playableTracks[(idx - 1 + playableTracks.length) % playableTracks.length]);
-  }, [playableTracks, currentTrack, handlePlay]);
+    // Use activeQueue when available, fall back to global playableTracks
+    const source = activeQueue.length > 0 ? activeQueue : playableTracks;
+    if (!source.length) return;
+    const idx = source.findIndex(t => t.id === currentTrack?.id);
+    handlePlay(source[(idx - 1 + source.length) % source.length]);
+  }, [activeQueue, playableTracks, currentTrack, handlePlay]);
 
-  // ── Next track (drains queue first, then respects shuffle + repeat) ─
+  // ── Next track (drains manual queue first, then respects shuffle + repeat) ─
   const handleNext = useCallback(() => {
-    if (!playableTracks.length) return;
-    // If there's something in the manual queue, play that first
+    // Drain the manual up-next queue first
     if (queue.length > 0) {
       const [next, ...rest] = queue;
       setQueue(rest);
       handlePlay(next);
       return;
     }
-    if (shuffle) {
-      handlePlay(playableTracks[Math.floor(Math.random() * playableTracks.length)]);
+
+    // Use activeQueue when available, fall back to global playableTracks
+    const source = activeQueue.length > 0 ? activeQueue : playableTracks;
+    if (!source.length) return;
+
+    // Repeat One — stay on same track
+    if (repeat) {
+      const idx = source.findIndex(t => t.id === currentTrack?.id);
+      if (idx !== -1) handlePlay(source[idx]);
       return;
     }
-    const idx = playableTracks.findIndex(t => t.id === currentTrack?.id);
-    handlePlay(playableTracks[repeat ? idx : (idx + 1) % playableTracks.length]);
-  }, [playableTracks, currentTrack, shuffle, repeat, handlePlay, queue]);
+
+    // Shuffle — random within active source
+    if (shuffle) {
+      handlePlay(source[Math.floor(Math.random() * source.length)]);
+      return;
+    }
+
+    // Normal advance
+    const idx = source.findIndex(t => t.id === currentTrack?.id);
+    const nextIdx = idx + 1;
+
+    if (nextIdx >= source.length) {
+      // End of queue — stop gracefully (no wrap without repeat)
+      pause();
+      return;
+    }
+
+    handlePlay(source[nextIdx]);
+  }, [activeQueue, playableTracks, currentTrack, shuffle, repeat, handlePlay, queue, pause]);
 
   /** Add a track to the end of the manual queue */
   const addToQueue = useCallback((track) => {
@@ -392,6 +428,8 @@ export function PlayerProvider({ children }) {
     audioRef,
     // Computed
     playableTracks,
+    activeQueue,
+    setActiveQueueAndPlay,
     isFav,
     displayElapsed,
     displayDuration,

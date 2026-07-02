@@ -22,7 +22,7 @@ export function Library() {
     localTracks, externalTracks, favorites, setFavorites,
     playlists, deletePlaylist, removeFromPlaylist, openPlaylistModal,
   } = useApp();
-  const { currentTrack, isPlaying, handlePlay, toggleFavorite, addToQueue } = usePlayer();
+  const { currentTrack, isPlaying, handlePlay, toggleFavorite, addToQueue, setActiveQueueAndPlay } = usePlayer();
 
   const [activePlaylist, setActivePlaylist] = useState(null);
   const [confirmDelete,  setConfirmDelete]  = useState(null);
@@ -138,7 +138,7 @@ export function Library() {
         <div className="pl-detail-actions">
           {tracks.length > 0 && (
             <button className="pl-play-btn"
-              onClick={() => handlePlay(tracks[0])}
+              onClick={() => setActiveQueueAndPlay(tracks, tracks[0])}
               aria-label="Play playlist">
               <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
                 <polygon points="5 3 19 12 5 21 5 3"/>
@@ -187,7 +187,7 @@ export function Library() {
               return (
                 <div key={t.id || i}
                   className={`pl-track-row${active ? ' pl-track-row--active' : ''}`}
-                  onDoubleClick={() => handlePlay(t)}>
+                  onDoubleClick={() => setActiveQueueAndPlay(tracks, t)}>
 
                   {/* # / playing indicator */}
                   <div className="pl-col-num pl-track-num">
@@ -198,7 +198,7 @@ export function Library() {
                     ) : (
                       <>
                         <span className="pl-row-idx">{i + 1}</span>
-                        <button className="pl-row-play" onClick={() => handlePlay(t)}
+                        <button className="pl-row-play" onClick={() => setActiveQueueAndPlay(tracks, t)}
                           aria-label={`Play ${t.title}`}>
                           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                             <polygon points="5 3 19 12 5 21 5 3"/>
@@ -384,14 +384,14 @@ export function Library() {
             return (
               <div key={t.id || i}
                 className={`pl-track-row${active ? ' pl-track-row--active' : ''}`}
-                onDoubleClick={() => handlePlay(t)}>
+                onDoubleClick={() => setActiveQueueAndPlay(likedTracks, t)}>
                 <div className="pl-col-num pl-track-num">
                   {active && isPlaying ? (
                     <span className="pl-eq"><span/><span/><span/></span>
                   ) : (
                     <>
                       <span className="pl-row-idx">{i + 1}</span>
-                      <button className="pl-row-play" onClick={() => handlePlay(t)}>
+                      <button className="pl-row-play" onClick={() => setActiveQueueAndPlay(likedTracks, t)}>
                         <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                           <polygon points="5 3 19 12 5 21 5 3"/>
                         </svg>
