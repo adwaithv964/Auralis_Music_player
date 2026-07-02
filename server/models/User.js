@@ -14,6 +14,24 @@ const HistoryEntrySchema = new mongoose.Schema({
   playedAt:   { type: Date, default: Date.now },
 }, { _id: false });
 
+/**
+ * Full metadata snapshot stored when a user likes a track.
+ * Mirrors HistoryEntrySchema but keyed by likedAt.
+ * Storing the snapshot ensures Liked Songs display works regardless of
+ * which external tracks happen to be loaded in the current session.
+ */
+const LikedSongSchema = new mongoose.Schema({
+  id:         { type: String, required: true },
+  title:      { type: String, default: "" },
+  artist:     { type: String, default: "" },
+  album:      { type: String, default: "" },
+  artworkUrl: { type: String, default: "" },
+  duration:   { type: Number, default: 0 },
+  genre:      { type: String, default: "" },
+  sourceType: { type: String, default: "itunes" },
+  likedAt:    { type: Date,   default: Date.now },
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema({
   // ── Identity: links to UserAuth document ──────────────────────
   // This is the foreign key that binds preferences + history to an account.
@@ -27,7 +45,14 @@ const UserSchema = new mongoose.Schema({
   username: { type: String, default: "" }, // display copy, updated on login
 
   // ── Favorites ─────────────────────────────────────────────────
+  // Fast ID-only list for O(1) isFav checks (heart icon).
   favorites: [{ type: String }],
+
+  // ── Liked Songs (full snapshots) ──────────────────────────────
+  // Full track metadata stored at like-time so Liked Songs page
+  // always displays correctly, independent of the current session's
+  // loaded external tracks pool.
+  likedSongs: { type: [LikedSongSchema], default: [] },
 
   // ── Play history (last 100 full snapshots, newest first) ──────
   history: {

@@ -100,9 +100,20 @@ export const api = {
   },
 
   // ── Favorites management ────────────────────────────────────────────────────
-  async toggleFavorite(id, isFavorite) {
+  /**
+   * @param {string}  id         - track ID
+   * @param {boolean} isFavorite - current liked state (true = currently liked → DELETE)
+   * @param {object}  [track]    - full track object (required on PUT to store snapshot)
+   */
+  async toggleFavorite(id, isFavorite, track = null) {
     const method = isFavorite ? 'DELETE' : 'PUT';
-    const res = await authFetch(`/api/favorites/${encodeURIComponent(id)}`, { method });
+    const options = { method };
+    // On PUT (adding a like), send the full track snapshot so the server can
+    // persist it in likedSongs[] for display — independent of loaded tracks.
+    if (!isFavorite && track) {
+      options.json = { track };
+    }
+    const res = await authFetch(`/api/favorites/${encodeURIComponent(id)}`, options);
     if (!res.ok) throw new Error(`Favorite toggle failed: ${res.status}`);
     return res.json();
   },

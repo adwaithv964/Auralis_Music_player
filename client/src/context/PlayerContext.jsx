@@ -104,6 +104,7 @@ export function PlayerProvider({ children }) {
     prefs,
     favorites,
     setFavorites,
+    setLikedSongs,
     setPlayHistory,
   } = useApp();
 
@@ -399,15 +400,30 @@ export function PlayerProvider({ children }) {
   }, []);  // Intentionally run once on mount only
 
   // ── Toggle favorite (API + local state sync) ─────────────────
+  /**
+   * Toggles the liked state for a track.
+   * On like (PUT): resolves the full track object and sends it to the server
+   *   so a snapshot is stored in likedSongs[] for display.
+   * On unlike (DELETE): removes from both favorites[] and likedSongs[].
+   * Both favorites (ID array) and likedSongs (snapshots) are synced from
+   * the server response — single source of truth, no stale state.
+   */
   const toggleFavorite = useCallback(async (id) => {
     const isFav = favorites.includes(id);
+    // Resolve the full track object to send as snapshot on like
+    const track = playableTracks.find(t => t.id === id) ||
+                  (currentTrack?.id === id ? currentTrack : null);
     try {
-      const data = await api.toggleFavorite(id, isFav);
+      const data = await api.toggleFavorite(id, isFav, track);
       setFavorites(data.favorites || []);
+      // Sync likedSongs snapshots from server response
+      if (data.likedSongs !== undefined) {
+        setLikedSongs(data.likedSongs);
+      }
     } catch (e) {
       console.error('[toggleFavorite]', e);
     }
-  }, [favorites, setFavorites]);
+  }, [favorites, setFavorites, setLikedSongs, playableTracks, currentTrack]);
 
   // ── Derived convenience ──────────────────────────────────────
   const isFav          = favorites.includes(currentTrack?.id);

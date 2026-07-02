@@ -1320,12 +1320,16 @@ app.get("/api/bootstrap", requireAuth, wrap(async (req, res) => {
   const history = [...(user.history || [])]
     .sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt))
     .slice(0, 50);
+  // Sort liked songs newest-first
+  const likedSongs = [...(user.likedSongs || [])]
+    .sort((a, b) => new Date(b.likedAt) - new Date(a.likedAt));
   res.json({
     tracks,
     library:     user.library,
     preferences: user.preferences,
     history,
     favorites:   user.favorites,
+    likedSongs,
   });
 }));
 
@@ -1394,21 +1398,44 @@ app.get("/api/history", requireAuth, wrap(async (req, res) => {
 }));
 
 app.put("/api/favorites/:id", requireAuth, wrap(async (req, res) => {
-  const user = await getUserByAuthId(req.userId);
-  if (!user.favorites.includes(req.params.id)) user.favorites.push(req.params.id);
-  if (!user.library.savedTrackIds.includes(req.params.id)) user.library.savedTrackIds.push(req.params.id);
+  const user    = await getUserByAuthId(req.userId);
+  const trackId = req.params.id;
+  // --- ID list (fast isFav checks) ---
+  if (!user.favorites.includes(trackId)) user.favorites.push(trackId);
+  if (!user.library.savedTrackIds.includes(trackId)) user.library.savedTrackIds.push(trackId);
+  // --- Full snapshot (Liked Songs page display) ---
+  const trackData = req.body?.track;
+  if (trackData && trackData.id) {
+    // Remove any stale entry for the same id first (idempotent)
+    user.likedSongs = (user.likedSongs || []).filter(s => s.id !== trackId);
+    user.likedSongs.unshift({
+      id:         trackData.id,
+      title:      trackData.title      || "",
+      artist:     trackData.artist     || "",
+      album:      trackData.album      || "",
+      artworkUrl: trackData.artworkUrl || "",
+      duration:   trackData.duration   || 0,
+      genre:      trackData.genre      || "",
+      sourceType: trackData.sourceType || "itunes",
+      likedAt:    new Date(),
+    });
+    user.markModified("likedSongs");
+  }
   user.markModified("library");
   await user.save();
-  res.json({ favorites: user.favorites });
+  res.json({ favorites: user.favorites, likedSongs: user.likedSongs || [] });
 }));
 
 app.delete("/api/favorites/:id", requireAuth, wrap(async (req, res) => {
-  const user = await getUserByAuthId(req.userId);
-  user.favorites             = user.favorites.filter(f => f !== req.params.id);
-  user.library.savedTrackIds = user.library.savedTrackIds.filter(f => f !== req.params.id);
+  const user    = await getUserByAuthId(req.userId);
+  const trackId = req.params.id;
+  user.favorites             = user.favorites.filter(f => f !== trackId);
+  user.likedSongs            = (user.likedSongs || []).filter(s => s.id !== trackId);
+  user.library.savedTrackIds = user.library.savedTrackIds.filter(f => f !== trackId);
+  user.markModified("likedSongs");
   user.markModified("library");
   await user.save();
-  res.json({ favorites: user.favorites });
+  res.json({ favorites: user.favorites, likedSongs: user.likedSongs });
 }));
 
 app.post("/api/library/tracks", requireAuth, wrap(async (req, res) => {

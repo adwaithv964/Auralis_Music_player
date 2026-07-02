@@ -20,6 +20,7 @@ import { api } from '../../services/api';
 export function Library() {
   const {
     localTracks, externalTracks, favorites, setFavorites,
+    likedSongs,
     playlists, deletePlaylist, removeFromPlaylist, openPlaylistModal,
   } = useApp();
   const { currentTrack, isPlaying, handlePlay, toggleFavorite, addToQueue, setActiveQueueAndPlay } = usePlayer();
@@ -33,7 +34,10 @@ export function Library() {
     ...localTracks.filter(trackHasAudio),
     ...externalTracks.filter(trackHasAudio),
   ];
-  const likedTracks = playableTracks.filter(t => favorites.includes(t.id));
+  // Use the persisted snapshot array — never filtered from externalTracks.
+  // This is the fix: liked songs show regardless of which external tracks
+  // are currently loaded in the session.
+  const likedTracks = likedSongs;
 
   // ── Toast helper ─────────────────────────────────────────────
   const toast = useCallback((msg) => {

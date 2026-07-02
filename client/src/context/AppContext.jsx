@@ -8,8 +8,8 @@
  *   - Playlists
  *   - Play history (loaded from bootstrap, full track snapshots)
  *   - Track data (local + external)
- *   - Favorites list
- *   - Search state + doLoadExternal
+ *   - Favorites list (ID array for fast isFav checks)
+ *   - Liked Songs (full track snapshots — source of truth for Liked Songs page)
  *
  * Auth isolation note:
  *   AppProvider only mounts when the user is authenticated (see App.jsx).
@@ -92,6 +92,9 @@ export function AppProvider({ children }) {
   const [localTracks,    setLocalTracks]   = useState([]);
   const [externalTracks, setExternalTracks] = useState([]);
   const [favorites,      setFavorites]     = useState([]);
+  // Full track snapshots for Liked Songs page — the single source of truth.
+  // Stored at like-time so it never depends on externalTracks being loaded.
+  const [likedSongs,     setLikedSongs]    = useState([]);
 
   // ── Language / mood filter ───────────────────────────────────
   const [language, setLanguage] = useState('malayalam');
@@ -128,6 +131,8 @@ export function AppProvider({ children }) {
       .then(data => {
         setLocalTracks(data.tracks    || []);
         setFavorites(  data.favorites || []);
+        // Full track snapshots for Liked Songs page
+        setLikedSongs( data.likedSongs || []);
         // Restore history snapshots (full track objects)
         setPlayHistory(data.history   || []);
         // Merge saved preferences (language, volume, theme, etc.)
@@ -278,8 +283,10 @@ export function AppProvider({ children }) {
     externalTracks,
     // History
     playHistory, setPlayHistory,
-    // Favorites
+    // Favorites (ID array)
     favorites, setFavorites,
+    // Liked Songs (full snapshots — use this for Liked Songs page display)
+    likedSongs, setLikedSongs,
     // Language / mood
     language, setLanguage, changeLanguage,
     mood, setMood,
