@@ -4,6 +4,7 @@ import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
 import { SourceBadge }          from '../common/SourceBadge';
 import { artProxy, fmt }        from '../../utils/audioHelpers';
 import { useSwipeSheet }        from '../../hooks/useSwipeSheet';
+import { WaveformProgress }     from '../WaveformProgress/WaveformProgress';
 
 
 /**
@@ -150,22 +151,16 @@ export function NowPlaying() {
             </div>
           </div>
 
-          {/* ── Progress bar ── */}
-          <div className="spotify-now-progress">
-            <div className={`spotify-progress-track${resolvingId ? ' spotify-progress-track--loading' : ''}`}>
-              <div className="spotify-progress-fill" style={progressStyle} />
-              {resolvingId && <div className="spotify-progress-shimmer" />}
-            </div>
-            <div className="spotify-progress-times">
-              <span>{fmt(displayElapsed)}</span>
-              <span>{fmt(displayDuration)}</span>
-            </div>
-            <input type="range" className="spotify-seek-input" min="0" max="1000"
-              value={Math.round(progress * 10)}
-              onChange={e => seek(e.target.value / 10)}
-              style={{ '--seek-thumb-color': theme.vibrant }}
-              aria-label="Seek" />
-          </div>
+          {/* ── Waveform Progress ── */}
+          <WaveformProgress
+            progress={progress}
+            isPlaying={isPlaying}
+            isLoading={!!resolvingId}
+            seek={seek}
+            displayElapsed={fmt(displayElapsed)}
+            displayDuration={fmt(displayDuration)}
+            accentColor={theme.vibrant}
+          />
 
           {/* ── Transport controls ── */}
           <div className="spotify-now-controls">

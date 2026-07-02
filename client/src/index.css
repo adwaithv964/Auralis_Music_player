@@ -7806,3 +7806,190 @@ html, body, #root {
 }
 
 
+/* ================================================================
+   ANIMATED WAVEFORM PROGRESS
+   CSS-only audio waveform visualization for the Now Playing panel.
+   No Web Audio API. No canvas. No SVG JS. Pure CSS animations.
+   ================================================================ */
+
+/* ── Keyframes ────────────────────────────────────────────────── */
+@keyframes wf-bounce {
+  0%   { transform: scaleY(0.30); }
+  20%  { transform: scaleY(1.00); }
+  40%  { transform: scaleY(0.55); }
+  60%  { transform: scaleY(0.85); }
+  80%  { transform: scaleY(0.40); }
+  100% { transform: scaleY(0.30); }
+}
+
+@keyframes wf-loading-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%       { opacity: 0.55; }
+}
+
+/* ── Root container ───────────────────────────────────────────── */
+.wf-root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Stage: positions bar layers + seek input ─────────────────── */
+.wf-stage {
+  position: relative;
+  height: 52px;
+  width: 100%;
+  cursor: pointer;
+  /* Clip glow bleed */
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+/* ── Bar layer (shared between muted + active) ────────────────── */
+.wf-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+  padding: 0 2px;
+  /* Prevent pointer events; the seek input sits above */
+  pointer-events: none;
+}
+
+/* ── Individual bar ───────────────────────────────────────────── */
+.wf-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--wf-h, 50%);
+  border-radius: 999px;
+  transform-origin: center center;
+  /* Default: frozen at a mid-bounce position */
+  transform: scaleY(0.50);
+  will-change: transform;
+  /* Animation defined but play-state = paused by default */
+  animation: wf-bounce var(--wf-dur, 0.65s) ease-in-out infinite;
+  animation-delay: var(--wf-delay, 0s);
+  animation-play-state: paused;
+}
+
+/* ── Muted layer (remaining, behind active) ───────────────────── */
+.wf-bars--muted .wf-bar {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ── Active layer (played portion) ───────────────────────────── */
+.wf-bars--active {
+  /* Clip to the played portion from the left */
+  clip-path: inset(0 calc(100% - var(--wf-progress, 0%)) 0 0 round 4px);
+  /* No CSS transition — progress updates every animation frame via React */
+}
+.wf-bars--active .wf-bar {
+  background: var(--wf-accent, var(--theme-vibrant, var(--accent)));
+  /* Subtle glow on active bars */
+  box-shadow: 0 0 6px var(--wf-accent, var(--theme-vibrant, var(--accent)));
+}
+
+/* ── Playing state: run animations ───────────────────────────── */
+.wf-stage--playing .wf-bar {
+  animation-play-state: running;
+}
+
+/* ── Loading state: slow opacity pulse ───────────────────────── */
+.wf-stage--loading .wf-bars--muted .wf-bar {
+  animation: wf-loading-pulse 1.4s ease-in-out infinite;
+  animation-delay: var(--wf-delay, 0s);
+  transform: scaleY(0.45);
+}
+
+/* ── Transparent seek input overlay ──────────────────────────── */
+.wf-seek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  z-index: 10;
+  /* Needed so range input fills the full stage */
+  background: transparent;
+}
+
+/* Make the invisible thumb still large enough to tap on mobile */
+.wf-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 44px;
+  height: 52px;
+  background: transparent;
+  cursor: pointer;
+}
+.wf-seek::-moz-range-thumb {
+  width: 44px;
+  height: 52px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* ── Time labels ──────────────────────────────────────────────── */
+.wf-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  padding: 0 2px;
+}
+
+/* ── Dynamic theme: time labels inherit text color ───────────── */
+.now-panel--themed .wf-times {
+  color: var(--theme-text-muted, rgba(255,255,255,0.55));
+}
+.now-panel--themed .wf-bars--muted .wf-bar {
+  background: rgba(255,255,255,0.18);
+}
+
+/* ── Mobile: slightly taller stage for easier thumb target ────── */
+@media (max-width: 768px) {
+  .wf-stage {
+    height: 48px;
+  }
+  .wf-bar {
+    /* Slightly reduce gap on narrow screens */
+    flex: 1 1 0;
+  }
+  /* On very narrow screens, hide every 4th bar to reduce density */
+  @supports (container-type: inline-size) {
+    .wf-bars .wf-bar:nth-child(4n) {
+      display: none;
+    }
+  }
+}
+
+/* ── Reduced motion: disable all bar animations ──────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .wf-bar,
+  .wf-stage--playing .wf-bar,
+  .wf-stage--loading .wf-bars--muted .wf-bar {
+    animation: none !important;
+    transform: scaleY(0.5) !important;
+    will-change: auto !important;
+  }
+}
+
+/* ── Light theme: darken muted bars ──────────────────────────── */
+body[data-theme="light"] .wf-bars--muted .wf-bar {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+
+
