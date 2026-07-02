@@ -25,15 +25,40 @@ export function PlayerBar() {
   } = usePlayer();
   const { theme } = useAlbumThemeContext();
 
-  // Subtle tint on the mini-player
-  const playerBarStyle = currentTrack ? {
-    borderTop: `1px solid ${theme.dominant}44`,
-    boxShadow: `0 -2px 30px ${theme.dominant}18`,
-  } : {};
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  /** Parse a hex color string to { r, g, b } components (0-255). */
+  function hexToRgb(hex) {
+    if (!hex || hex.length < 7) return { r: 14, g: 16, b: 20 };
+    return {
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    };
+  }
+
+  // ── Derive glass tint from dominant album color ──────────────────────────
+  const dominantRgb = hexToRgb(theme.dominant);
+
+  // Inline style for the footer: dynamic CSS vars for glass tint + theming
+  const playerBarStyle = {
+    // Pass the RGB channels as separate CSS vars so CSS can use them in rgba()
+    '--player-tint-r': dominantRgb.r,
+    '--player-tint-g': dominantRgb.g,
+    '--player-tint-b': dominantRgb.b,
+    // Subtle colored border top — blends dominant hue at low opacity
+    borderColor: currentTrack
+      ? `rgba(${dominantRgb.r}, ${dominantRgb.g}, ${dominantRgb.b}, 0.20)`
+      : 'rgba(255,255,255,0.08)',
+    // Layered shadow: deep ambient + colored glow from dominant
+    boxShadow: currentTrack
+      ? `0 10px 40px rgba(0,0,0,0.40), 0 4px 16px rgba(0,0,0,0.25), 0 0 60px rgba(${dominantRgb.r},${dominantRgb.g},${dominantRgb.b},0.08), inset 0 1px 0 rgba(255,255,255,0.07)`
+      : '0 10px 40px rgba(0,0,0,0.40), 0 4px 16px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.07)',
+  };
+
   const miniProgressFillStyle = { width: `${progress}%`, background: theme.vibrant };
   const playBtnStyle = {
     background: theme.vibrant,
-    boxShadow: `0 0 16px ${theme.dominant}66`,
+    boxShadow: `0 0 20px rgba(${dominantRgb.r},${dominantRgb.g},${dominantRgb.b},0.55), 0 4px 12px rgba(0,0,0,0.4)`,
   };
 
   const coverBgInline = currentTrack?.artworkUrl

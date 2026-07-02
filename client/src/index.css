@@ -889,6 +889,21 @@ body:not(.is-playing) .meter-bar {
   width: 56px;
   height: 56px;
   flex: 0 0 56px;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow:
+    0 4px 16px rgba(0,0,0,0.55),
+    0 1px 4px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+  will-change: transform, opacity;
+  transition: box-shadow 300ms cubic-bezier(0.22,1,0.36,1), transform 300ms cubic-bezier(0.22,1,0.36,1);
+}
+.mini-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .mini-copy {
@@ -904,9 +919,18 @@ body:not(.is-playing) .meter-bar {
   white-space: nowrap;
 }
 
+.mini-copy strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.97);
+  letter-spacing: -0.01em;
+}
+
 .mini-copy span {
-  margin-top: 4px;
-  color: var(--muted);
+  margin-top: 3px;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.58);
+  font-weight: 400;
 }
 
 .transport {
@@ -928,10 +952,20 @@ body:not(.is-playing) .meter-bar {
   color: #101111;
   background: var(--accent);
   border-color: transparent;
+  will-change: transform, box-shadow;
+  transition:
+    transform 220ms cubic-bezier(0.22,1,0.36,1),
+    box-shadow 220ms cubic-bezier(0.22,1,0.36,1),
+    background 400ms ease !important;
 }
 
 .play-button:hover {
-  transform: scale(1.03);
+  transform: scale(1.06);
+}
+
+.play-button:active {
+  transform: scale(0.96);
+  transition-duration: 80ms;
 }
 
 .progress-line {
@@ -1918,14 +1952,81 @@ body[data-reduced-motion="true"] *::after {
   backdrop-filter: blur(36px) saturate(160%) !important;
 }
 
-/* Player footer */
+/* Player footer — Premium Floating Glassmorphism */
 .player {
-  background: rgba(8, 10, 14, 0.80) !important;
-  border: 1px solid var(--glass-border) !important;
-  box-shadow: 0 -1px 0 rgba(255,255,255,0.06), var(--glass-glow) !important;
-  backdrop-filter: blur(40px) saturate(200%) !important;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(var(--player-tint-r, 14), var(--player-tint-g, 16), var(--player-tint-b, 20), 0.18) 0%,
+      rgba(0,0,0,0) 100%
+    ),
+    rgba(14, 16, 20, 0.72) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-top: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 20px !important;
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.40),
+    0 4px 16px rgba(0,0,0,0.25),
+    0 2px 6px  rgba(255,255,255,0.03),
+    inset 0 1px 0 rgba(255,255,255,0.07) !important;
+  backdrop-filter: blur(28px) saturate(185%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(185%) !important;
   grid-column: 1 / -1;
+  /* Lift above the grid baseline */
+  position: relative;
+  z-index: 5;
+  will-change: transform, box-shadow, background;
+  transition:
+    background 500ms ease,
+    border-color 500ms ease,
+    box-shadow 500ms ease,
+    transform 240ms cubic-bezier(0.22,1,0.36,1) !important;
+  animation: player-glass-appear 280ms cubic-bezier(0.22,1,0.36,1) both;
 }
+
+.player:hover {
+  transform: translateY(-2px) scale(1.005) !important;
+  box-shadow:
+    0 16px 50px rgba(0,0,0,0.45),
+    0 6px 20px rgba(0,0,0,0.30),
+    0 2px 8px  rgba(255,255,255,0.04),
+    inset 0 1px 0 rgba(255,255,255,0.10) !important;
+}
+
+/* ── Player appear keyframe ─────────────────────────────────── */
+@keyframes player-glass-appear {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Fallback: no backdrop-filter support (Firefox <103) ────── */
+@supports not (backdrop-filter: blur(1px)) {
+  .player {
+    background: rgba(10, 12, 18, 0.94) !important;
+  }
+}
+
+/* ── Reduced motion: disable all player animations ──────────── */
+@media (prefers-reduced-motion: reduce) {
+  .player,
+  .player:hover,
+  .mini-cover,
+  .play-button,
+  .icon-button {
+    animation: none !important;
+    transition: background 200ms ease, border-color 200ms ease !important;
+    transform: none !important;
+    will-change: auto !important;
+  }
+}
+
+
 
 /* Main area glass cards */
 .album-card {
@@ -3827,11 +3928,19 @@ body[data-reduced-motion="true"] *::after {
   z-index: 2;
 }
 
-/* Mini-player cover now shows actual image */
+/* Mini-player cover — premium pill presentation */
 .mini-cover {
-  border-radius: 4px;
+  border-radius: 10px !important;
   overflow: hidden;
 }
+
+/* Suppress the vinyl-record pseudo-elements that the shared
+   hero-art/mini-cover selector injects — artwork fills the whole square */
+.mini-cover::before,
+.mini-cover::after {
+  display: none !important;
+}
+
 
 /* ---------------------------------------------------------------
    SPOTIFY-STYLE NOW PLAYING PANEL
@@ -7481,11 +7590,13 @@ html, body, #root {
   pointer-events: none;
 }
 
-/* ── Mini-player (PlayerBar): subtle border tint transition ─────── */
+/* ── Mini-player (PlayerBar): premium glass tint + full transition ─── */
 .player {
   transition:
-    border-top 500ms ease,
-    box-shadow 500ms ease !important;
+    background 500ms ease,
+    border-color 500ms ease,
+    box-shadow 500ms ease,
+    transform 240ms cubic-bezier(0.22,1,0.36,1) !important;
 }
 
 /* ── PlayerBar play button themed transition ────────────────────── */
@@ -7493,7 +7604,7 @@ html, body, #root {
   transition:
     background 500ms ease,
     box-shadow 500ms ease,
-    transform 120ms ease !important;
+    transform 220ms cubic-bezier(0.22,1,0.36,1) !important;
 }
 
 /* ── Mini-player progress fill themed ──────────────────────────── */
@@ -7506,6 +7617,7 @@ html, body, #root {
 .spotify-seek-input {
   accent-color: var(--seek-thumb-color, var(--theme-vibrant, var(--accent)));
 }
+
 
 /* ── Prevent flicker: now-panel transitions only apply after theme set */
 .now-panel--themed * {
@@ -7527,7 +7639,78 @@ html, body, #root {
 }
 
 /* ================================================================
+   PREMIUM PLAYER BAR POLISH
+   Fine-grain icon, artwork, and progress enhancements
+   ================================================================ */
+
+/* ── Icon buttons inside player bar: glass hover ─────────────── */
+.player .icon-button {
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.60);
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    transform 180ms cubic-bezier(0.22,1,0.36,1) !important;
+}
+
+.player .icon-button:hover {
+  background: rgba(255,255,255,0.10) !important;
+  border-color: rgba(255,255,255,0.15) !important;
+  color: rgba(255,255,255,0.95) !important;
+  transform: scale(1.08) !important;
+}
+
+.player .icon-button:active {
+  transform: scale(0.94) !important;
+  transition-duration: 60ms !important;
+}
+
+.player .icon-button.active,
+.player .icon-button.favorited {
+  color: var(--theme-vibrant, var(--accent)) !important;
+  border-color: rgba(var(--accent-rgb), 0.25) !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+}
+
+/* ── Mini-cover track-change animation ────────────────────────── */
+@keyframes mini-cover-pop {
+  0%   { opacity: 0.5; transform: scale(0.92); }
+  60%  { opacity: 1;   transform: scale(1.04); }
+  100% { opacity: 1;   transform: scale(1); }
+}
+
+/* Progress bar: more visible track ──────────────────────────────*/
+.player .progress-wrap {
+  height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 999px;
+}
+
+.player .progress-fill {
+  border-radius: 999px;
+  /* Glow effect on fill */
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+/* Progress bar hover: grow + thumb ──────────────────────────────*/
+.player .progress-wrap:hover {
+  height: 5px;
+}
+
+/* Volume zone polish ─────────────────────────────────────────── */
+.player .volume-zone svg {
+  color: rgba(255,255,255,0.50);
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+/* ================================================================
    SAFE AREA FIX — Full-screen mobile player header clearance
+
    Top safe-area is handled in NowPlaying.jsx via inline style
    (now-panel-safe-top div). CSS here handles height and bottom.
    ================================================================ */
