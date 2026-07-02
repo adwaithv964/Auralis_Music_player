@@ -1,7 +1,8 @@
-import { useApp }    from '../../context/AppContext';
-import { usePlayer }  from '../../context/PlayerContext';
-import { SourceBadge } from '../common/SourceBadge';
+import { useApp }       from '../../context/AppContext';
+import { usePlayer }    from '../../context/PlayerContext';
+import { SourceBadge }  from '../common/SourceBadge';
 import { artProxy, fmt } from '../../utils/audioHelpers';
+import { useSwipeSheet } from '../../hooks/useSwipeSheet';
 
 
 /**
@@ -23,9 +24,17 @@ export function NowPlaying() {
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
 
+  // ── Swipe-down gesture to close the sheet ──────────────────
+  const swipeRef = useSwipeSheet({
+    role:    'sheet',
+    isOpen:  mobileNowOpen,
+    onOpen:  () => setMobileNowOpen(true),
+    onClose: () => setMobileNowOpen(false),
+  });
 
   return (
     <aside
+      ref={swipeRef}
       className={`now-panel glass-panel${mobileNowOpen ? ' now-panel--mobile-open' : ''}`}
       aria-label="Now playing"
     >

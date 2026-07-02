@@ -1,7 +1,8 @@
 import { useRef } from 'react';
-import { useApp }   from '../../context/AppContext';
-import { usePlayer } from '../../context/PlayerContext';
-import { artProxy }  from '../../utils/audioHelpers';
+import { useApp }        from '../../context/AppContext';
+import { usePlayer }     from '../../context/PlayerContext';
+import { artProxy }      from '../../utils/audioHelpers';
+import { useSwipeSheet } from '../../hooks/useSwipeSheet';
 
 /**
  * BottomNav
@@ -10,7 +11,7 @@ import { artProxy }  from '../../utils/audioHelpers';
  *  - Three navigation tabs: Home, Search, Your Library
  */
 export function BottomNav() {
-  const { view, navigateTo, setMobileNowOpen } = useApp();
+  const { view, navigateTo, setMobileNowOpen, mobileNowOpen } = useApp();
   const {
     currentTrack,
     isPlaying,
@@ -20,6 +21,14 @@ export function BottomNav() {
     togglePlay,
     toggleFavorite,
   } = usePlayer();
+
+  // ── Swipe-up gesture to open Now Playing sheet ──────────────
+  const swipeRef = useSwipeSheet({
+    role:    'mini',
+    isOpen:  mobileNowOpen,
+    onOpen:  () => setMobileNowOpen(true),
+    onClose: () => {}, // mini never closes via swipe
+  });
 
   // ── Double-tap Home → scroll to top ────────────────────────
   const lastHomeTapRef = useRef(0);
@@ -78,7 +87,11 @@ export function BottomNav() {
 
       {/* ── Mini-player strip (visible when a track is loaded) ── */}
       {currentTrack && (
-        <div className="bmp-strip" onClick={() => setMobileNowOpen(true)}>
+        <div
+          className="bmp-strip"
+          ref={swipeRef}
+          onClick={() => setMobileNowOpen(true)}
+        >
           {/* Thin progress line at top */}
           <div className="bmp-strip-progress">
             <div className="bmp-strip-fill" style={{ width: `${progress}%` }} />
