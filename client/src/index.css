@@ -7526,3 +7526,116 @@ html, body, #root {
   transition: none !important;
 }
 
+/* ================================================================
+   SAFE AREA FIX — Full-screen mobile player header clearance
+   Ensures the collapse button, "LAST PLAYED" label, song title and
+   three-dot menu are never hidden beneath the device status bar,
+   notch, Dynamic Island or hole-punch camera.
+
+   Uses env(safe-area-inset-top) with viewport-fit=cover (already
+   set in index.html). No hardcoded pixel offsets.
+   ================================================================ */
+
+@media (max-width: 768px) {
+
+  /* ── 1. Full-screen now-panel: push entire sheet below status bar ── */
+  .now-panel {
+    /* 100dvh = correct viewport height on modern mobile browsers;
+       the 100vh fallback ignores the dynamic toolbar area on iOS/Android */
+    height: 100dvh !important;
+
+    /* Pad the TOP of the fixed sheet by the device's safe-area inset.
+       This single rule means every child (handle, header, content) is
+       automatically pushed below the system status bar. */
+    padding-top: env(safe-area-inset-top, 0px) !important;
+
+    /* Keep bottom padding for home indicator / nav bar */
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+
+    /* Box-sizing ensures padding doesn't overflow the 100dvh constraint */
+    box-sizing: border-box !important;
+  }
+
+  /* ── 2. Drag handle: space it comfortably below the safe area ────── */
+  /*    The handle sits right at the top of the panel, so it only needs
+       a small additional margin on top of the safe-area padding above.  */
+  .now-panel-mobile-handle {
+    /* Adds 8px of visual breathing room below the status bar */
+    margin: 8px auto 4px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* ── 3. Header row: comfortable gap after the drag handle ──────────  */
+  .spotify-now-header {
+    flex-shrink: 0 !important;
+    /* 12px top gives visual separation from the drag handle pill;
+       16px sides match the overall panel padding. */
+    padding: 12px 16px 4px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ── 4. Scrollable content area: top starts just after header ─────── */
+  .spotify-now {
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    /* 8px top gives small gap after header; bottom leaves space for
+       any gesture area above the home indicator */
+    padding: 8px 18px calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+    scrollbar-width: none !important;
+  }
+  .spotify-now::-webkit-scrollbar { display: none !important; }
+
+  /* ── 5. Context text in the header: ensure it's always readable ───── */
+  .spotify-now-context {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 1px !important;
+    text-align: center !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+    overflow: hidden !important;
+  }
+  .spotify-now-context-label {
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+    white-space: nowrap !important;
+  }
+  .spotify-now-context-val {
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+    display: block !important;
+  }
+}
+
+/* ── Portrait vs Landscape: give more top room in landscape ─────────── */
+@media (max-width: 768px) and (orientation: landscape) {
+  .now-panel {
+    /* In landscape the status bar is smaller; keep inset but reduce padding */
+    padding-top: env(safe-area-inset-top, 0px) !important;
+  }
+  .spotify-now-art {
+    /* Smaller art in landscape to fit controls on screen */
+    width: min(42vw, 200px) !important;
+    margin: 0 auto !important;
+  }
+  .spotify-now {
+    /* Switch to horizontal layout in landscape for a better UX */
+    flex-direction: column !important;
+    padding: 4px 18px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 10px !important;
+  }
+}
+
