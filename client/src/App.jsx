@@ -11,11 +11,12 @@
  */
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-import { AppProvider }       from './context/AppContext';
-import { PlayerProvider }    from './context/PlayerContext';
-import { AppShell }          from './AppShell';
-import { AuthPage }          from './pages/Auth/AuthPage';
-import { setApiToken }       from './services/api';
+import { AppProvider }          from './context/AppContext';
+import { PlayerProvider }       from './context/PlayerContext';
+import { AlbumThemeProvider }   from './context/AlbumThemeContext';
+import { AppShell }             from './AppShell';
+import { AuthPage }             from './pages/Auth/AuthPage';
+import { setApiToken }          from './services/api';
 import './index.css';
 
 /**
@@ -60,7 +61,9 @@ function AuthGate() {
   return (
     <AppProvider>
       <PlayerProvider>
-        <AppShell />
+        <AlbumThemeProvider>
+          <AppShell />
+        </AlbumThemeProvider>
       </PlayerProvider>
     </AppProvider>
   );

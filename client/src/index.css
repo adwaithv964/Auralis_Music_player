@@ -7343,3 +7343,186 @@ html, body, #root {
     font-weight: 700 !important;
   }
 }
+
+/* ================================================================
+   DYNAMIC ALBUM ART COLOR EXTRACTION — Theming System
+   Colors are set via JS (AlbumThemeContext) using CSS custom properties.
+   ================================================================ */
+
+/* ── Default CSS custom properties ─────────────────────────────── */
+:root {
+  --theme-dominant:   #1db954;
+  --theme-vibrant:    #1db954;
+  --theme-muted:      #1a2e22;
+  --theme-dark-muted: #0f1a13;
+  --theme-gradient:   linear-gradient(180deg, #1a3320 0%, #111a15 45%, #0a0f0d 100%);
+  --theme-text:           rgba(245, 247, 239, 0.97);
+  --theme-text-secondary: rgba(245, 247, 239, 0.60);
+}
+
+/* ── Override the glass-panel !important on the themed now-panel ── */
+.now-panel--themed {
+  background: var(--theme-gradient) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 28px 60px rgba(0,0,0,0.55) !important;
+
+  /* Smooth 500ms theme transitions */
+  transition:
+    background 500ms ease,
+    box-shadow 500ms ease,
+    border-color 500ms ease !important;
+}
+
+/* ── Themed now panel: color inherits from inline style ─────────── */
+.now-panel--themed .spotify-now-title {
+  color: var(--theme-text);
+}
+.now-panel--themed .spotify-now-artist {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-now-album {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-now-context-label,
+.now-panel--themed .spotify-now-context-val {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-progress-times {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-now-volume svg {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-now-tag {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-ctrl-btn {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .spotify-ctrl-btn:hover {
+  color: var(--theme-text);
+}
+.now-panel--themed .spotify-ctrl-btn--lg {
+  color: var(--theme-text);
+}
+.now-panel--themed .now-icon-btn {
+  color: var(--theme-text-secondary);
+}
+.now-panel--themed .now-icon-btn:hover {
+  color: var(--theme-text);
+}
+
+/* ── Progress fill: themed accent color ────────────────────────── */
+.now-panel--themed .spotify-progress-fill {
+  background: var(--theme-vibrant) !important;
+  transition: width 250ms linear, background 500ms ease !important;
+}
+
+/* Hover dot also themed */
+.now-panel--themed .spotify-progress-track:hover .spotify-progress-fill::after {
+  background: var(--theme-vibrant) !important;
+}
+
+/* ── Progress hover restore themed color (not default accent) ────── */
+.now-panel--themed .spotify-progress-track:hover .spotify-progress-fill {
+  background: var(--theme-vibrant) !important;
+}
+
+/* ── Play button: themed vibrant color ─────────────────────────── */
+.now-panel--themed .spotify-play-btn {
+  background: var(--theme-vibrant) !important;
+  color: #000 !important;
+  transition:
+    background 500ms ease,
+    box-shadow 500ms ease,
+    transform 120ms ease !important;
+}
+.now-panel--themed .spotify-play-btn:hover:not(:disabled) {
+  background: var(--theme-vibrant) !important;
+  filter: brightness(1.12) !important;
+}
+
+/* ── Volume slider: themed thumb ───────────────────────────────── */
+.now-panel--themed .spotify-volume-slider {
+  background: rgba(255, 255, 255, 0.15);
+}
+.now-panel--themed .spotify-volume-slider::-webkit-slider-thumb {
+  background: var(--theme-vibrant) !important;
+  opacity: 1;
+}
+.now-panel--themed .spotify-volume-slider::-webkit-slider-runnable-track {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Seek input: themed thumb via CSS var ──────────────────────── */
+.now-panel--themed .spotify-seek-input {
+  accent-color: var(--theme-vibrant);
+}
+
+/* ── Artwork: glow wrapper (outside overflow:hidden) ───────────── */
+.spotify-now-art-wrapper {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* ── Artwork: glow element ─────────────────────────────────────── */
+
+.spotify-now-art-glow {
+  position: absolute;
+  inset: -20px;
+  z-index: -1;
+  border-radius: inherit;
+  transition: box-shadow 500ms ease;
+  pointer-events: none;
+}
+
+/* ── Mini-player (PlayerBar): subtle border tint transition ─────── */
+.player {
+  transition:
+    border-top 500ms ease,
+    box-shadow 500ms ease !important;
+}
+
+/* ── PlayerBar play button themed transition ────────────────────── */
+.play-button {
+  transition:
+    background 500ms ease,
+    box-shadow 500ms ease,
+    transform 120ms ease !important;
+}
+
+/* ── Mini-player progress fill themed ──────────────────────────── */
+.progress-fill {
+  transition: width 200ms linear, background 500ms ease !important;
+}
+
+/* ── Seek thumb on PlayerBar ────────────────────────────────────── */
+.progress-seek,
+.spotify-seek-input {
+  accent-color: var(--seek-thumb-color, var(--theme-vibrant, var(--accent)));
+}
+
+/* ── Prevent flicker: now-panel transitions only apply after theme set */
+.now-panel--themed * {
+  transition-property: color, background, box-shadow, border-color;
+  transition-duration: 400ms;
+  transition-timing-function: ease;
+}
+
+/* Don't transition transform or layout-related properties */
+.now-panel--themed .spotify-play-btn,
+.now-panel--themed .spotify-ctrl-btn,
+.now-panel--themed .spotify-now-art {
+  transition-property: background, box-shadow, color, border-color, transform !important;
+}
+
+/* Artwork animation stays snappy */
+.now-panel--themed .spotify-now-art-img {
+  transition: none !important;
+}
+

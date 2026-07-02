@@ -1,6 +1,7 @@
-import { useApp }   from '../../context/AppContext';
-import { usePlayer } from '../../context/PlayerContext';
-import { artProxy, fmt } from '../../utils/audioHelpers';
+import { useApp }              from '../../context/AppContext';
+import { usePlayer }           from '../../context/PlayerContext';
+import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
+import { artProxy, fmt }       from '../../utils/audioHelpers';
 
 /**
  * PlayerBar
@@ -22,6 +23,18 @@ export function PlayerBar() {
     isFav,
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
+  const { theme } = useAlbumThemeContext();
+
+  // Subtle tint on the mini-player
+  const playerBarStyle = currentTrack ? {
+    borderTop: `1px solid ${theme.dominant}44`,
+    boxShadow: `0 -2px 30px ${theme.dominant}18`,
+  } : {};
+  const miniProgressFillStyle = { width: `${progress}%`, background: theme.vibrant };
+  const playBtnStyle = {
+    background: theme.vibrant,
+    boxShadow: `0 0 16px ${theme.dominant}66`,
+  };
 
   const coverBgInline = currentTrack?.artworkUrl
     ? `url(${artProxy(currentTrack.artworkUrl)}) center/cover`
@@ -30,7 +43,7 @@ export function PlayerBar() {
       : 'none';
 
   return (
-    <footer className="player glass-panel">
+    <footer className="player glass-panel" style={playerBarStyle}>
 
       {/* ── Left: mini track info ── */}
       <div className="mini-now" onClick={() => setMobileNowOpen(true)} style={{ cursor: 'pointer' }}>
@@ -81,7 +94,7 @@ export function PlayerBar() {
           <button className="icon-button" onClick={handlePrev}>
             <svg><use href="#i-prev" /></svg>
           </button>
-          <button className="play-button" onClick={togglePlay}>
+          <button className="play-button" onClick={togglePlay} style={playBtnStyle}>
             <svg><use href={isPlaying ? '#i-pause' : '#i-play'} /></svg>
           </button>
           <button className="icon-button" onClick={handleNext}>
@@ -96,11 +109,12 @@ export function PlayerBar() {
         <div className={`progress-line${resolvingId ? ' progress-line--loading' : ''}`}>
           <span>{fmt(displayElapsed)}</span>
           <div className="progress-wrap">
-            <div className="progress-fill" style={{ width: `${progress}%` }} />
+            <div className="progress-fill" style={miniProgressFillStyle} />
             {resolvingId && <div className="progress-shimmer-bar" />}
             <input type="range" className="progress-seek" min="0" max="1000"
               value={Math.round(progress * 10)}
               onChange={e => seek(e.target.value / 10)}
+              style={{ '--seek-thumb-color': theme.vibrant }}
               aria-label="Seek" />
           </div>
           <span>{fmt(displayDuration)}</span>

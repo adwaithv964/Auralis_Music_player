@@ -1,8 +1,9 @@
-import { useApp }       from '../../context/AppContext';
-import { usePlayer }    from '../../context/PlayerContext';
-import { SourceBadge }  from '../common/SourceBadge';
-import { artProxy, fmt } from '../../utils/audioHelpers';
-import { useSwipeSheet } from '../../hooks/useSwipeSheet';
+import { useApp }               from '../../context/AppContext';
+import { usePlayer }            from '../../context/PlayerContext';
+import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
+import { SourceBadge }          from '../common/SourceBadge';
+import { artProxy, fmt }        from '../../utils/audioHelpers';
+import { useSwipeSheet }        from '../../hooks/useSwipeSheet';
 
 
 /**
@@ -23,6 +24,16 @@ export function NowPlaying() {
     isFav,
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
+  const { theme } = useAlbumThemeContext();
+
+  // Inline style helpers derived from the dynamic theme
+  const accentStyle    = { '--now-accent': theme.vibrant };
+  const glowStyle      = { boxShadow: `0 8px 60px 6px ${theme.dominant}55, 0 2px 20px 2px ${theme.dominant}33` };
+  const progressStyle  = { background: theme.vibrant, width: `${progress}%` };
+  const panelBgStyle   = {
+    background: theme.gradient,
+    color: theme.textColor === 'dark' ? 'rgba(10,15,13,0.95)' : 'rgba(245,247,239,0.97)',
+  };
 
   // ── Swipe-down gesture to close the sheet ──────────────────
   const swipeRef = useSwipeSheet({
@@ -35,7 +46,8 @@ export function NowPlaying() {
   return (
     <aside
       ref={swipeRef}
-      className={`now-panel glass-panel${mobileNowOpen ? ' now-panel--mobile-open' : ''}`}
+      className={`now-panel glass-panel now-panel--themed${mobileNowOpen ? ' now-panel--mobile-open' : ''}`}
+      style={panelBgStyle}
       aria-label="Now playing"
     >
       {/* Mobile drag handle */}
@@ -68,23 +80,27 @@ export function NowPlaying() {
           </div>
 
           {/* ── Album artwork ── */}
-          <div className="spotify-now-art">
-            {currentTrack.artworkUrl ? (
-              <img
-                src={artProxy(currentTrack.artworkUrl)}
-                alt={currentTrack.title}
-                className="spotify-now-art-img"
-                key={currentTrack.artworkUrl}
-              />
-            ) : (
-              <div className="spotify-now-art-fallback" />
-            )}
-            {resolvingId && (
-              <div className="spotify-now-art-loading">
-                <div className="spotify-spinner" />
-                <span>Loading full track…</span>
-              </div>
-            )}
+          <div className="spotify-now-art-wrapper" style={accentStyle}>
+            {/* Glow ring behind artwork — outside overflow:hidden so it bleeds out */}
+            <div className="spotify-now-art-glow" style={glowStyle} />
+            <div className="spotify-now-art">
+              {currentTrack.artworkUrl ? (
+                <img
+                  src={artProxy(currentTrack.artworkUrl)}
+                  alt={currentTrack.title}
+                  className="spotify-now-art-img"
+                  key={currentTrack.artworkUrl}
+                />
+              ) : (
+                <div className="spotify-now-art-fallback" />
+              )}
+              {resolvingId && (
+                <div className="spotify-now-art-loading">
+                  <div className="spotify-spinner" />
+                  <span>Loading full track…</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ─ Track info + ♥ + ＋ (Spotify layout) ─ */}
@@ -130,7 +146,7 @@ export function NowPlaying() {
           {/* ── Progress bar ── */}
           <div className="spotify-now-progress">
             <div className={`spotify-progress-track${resolvingId ? ' spotify-progress-track--loading' : ''}`}>
-              <div className="spotify-progress-fill" style={{ width: `${progress}%` }} />
+              <div className="spotify-progress-fill" style={progressStyle} />
               {resolvingId && <div className="spotify-progress-shimmer" />}
             </div>
             <div className="spotify-progress-times">
@@ -140,13 +156,15 @@ export function NowPlaying() {
             <input type="range" className="spotify-seek-input" min="0" max="1000"
               value={Math.round(progress * 10)}
               onChange={e => seek(e.target.value / 10)}
+              style={{ '--seek-thumb-color': theme.vibrant }}
               aria-label="Seek" />
           </div>
 
           {/* ── Transport controls ── */}
           <div className="spotify-now-controls">
             <button className={`spotify-ctrl-btn${shuffle ? ' spotify-ctrl-btn--active' : ''}`}
-              onClick={() => setShuffle(s => !s)} title="Shuffle">
+              onClick={() => setShuffle(s => !s)} title="Shuffle"
+              style={shuffle ? { color: theme.vibrant } : {}}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
                 <path d="M16 3h5v5M4 20l16-16M21 16v5h-5M15 15l6 6M4 4l5 5" />
               </svg>
@@ -156,7 +174,12 @@ export function NowPlaying() {
                 <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
               </svg>
             </button>
-            <button className="spotify-play-btn" onClick={togglePlay} disabled={!!resolvingId}>
+            <button
+              className="spotify-play-btn"
+              onClick={togglePlay}
+              disabled={!!resolvingId}
+              style={{ background: theme.vibrant, boxShadow: `0 0 24px ${theme.dominant}88` }}
+            >
               {resolvingId ? (
                 <div className="spotify-play-spinner" />
               ) : (
@@ -173,7 +196,8 @@ export function NowPlaying() {
               </svg>
             </button>
             <button className={`spotify-ctrl-btn${repeat ? ' spotify-ctrl-btn--active' : ''}`}
-              onClick={() => setRepeat(r => !r)} title="Repeat">
+              onClick={() => setRepeat(r => !r)} title="Repeat"
+              style={repeat ? { color: theme.vibrant } : {}}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
                 <polyline points="17 1 21 5 17 9" />
                 <path d="M3 11V9a4 4 0 0 1 4-4h14" />
@@ -219,6 +243,7 @@ export function NowPlaying() {
             <input type="range" min="0" max="100"
               value={prefs.volume ?? 62}
               className="spotify-volume-slider"
+              style={{ '--seek-thumb-color': theme.vibrant }}
               onChange={e => setPrefs(p => ({ ...p, volume: Number(e.target.value) }))} />
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
