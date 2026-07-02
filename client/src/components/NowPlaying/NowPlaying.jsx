@@ -50,6 +50,13 @@ export function NowPlaying() {
       style={panelBgStyle}
       aria-label="Now playing"
     >
+      {/* Safe-area spacer — pushes all content below the device status bar/notch.
+          Using inline style so it wins over any CSS !important block. */}
+      <div
+        className="now-panel-safe-top"
+        style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }}
+      />
+
       {/* Mobile drag handle */}
       <div className="now-panel-mobile-handle" onClick={() => setMobileNowOpen(false)} />
 

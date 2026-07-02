@@ -113,11 +113,12 @@ export function AppShell() {
           <div className="panel-drag-grip" />
         </div>
 
-        {/* ── Right: Now Playing panel ── */}
-        <NowPlaying />
-
         {/* ── Bottom: Desktop player bar ── */}
         <PlayerBar />
+
+        {/* ── Right: Now Playing panel ── */}
+        {/* On desktop: grid column 3. On mobile: position:fixed full-screen overlay. */}
+        <NowPlaying />
 
         {/* ── Bottom: Mobile nav + mini-strip ── */}
         <BottomNav />
@@ -138,4 +139,3 @@ export function AppShell() {
     </>
   );
 }
-
