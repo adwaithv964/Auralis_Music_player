@@ -2,6 +2,7 @@ import { useApp }    from '../../context/AppContext';
 import { usePlayer }  from '../../context/PlayerContext';
 import { TrackCard }  from '../../components/MusicCard/TrackCard';
 import { trackHasAudio, isFullSong } from '../../utils/audioHelpers';
+import { SkeletonSearchPage } from '../../components/Skeleton/Skeleton';
 
 /**
  * Search page
@@ -38,7 +39,7 @@ export function Search() {
         )}
       </div>
 
-      {isLoadingExt && <div className="loading-msg">⟳ Searching…</div>}
+      {isLoadingExt && searchResults.length === 0 && <SkeletonSearchPage count={8} />}
 
       <div className="track-list">
         {searchResults.map((t, i) => (

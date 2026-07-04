@@ -88,7 +88,10 @@ export function NowPlaying() {
           </div>
 
           {/* ── Album artwork ── */}
-          <div className="spotify-now-art-wrapper" style={accentStyle}>
+          <div
+            className={`spotify-now-art-wrapper${isPlaying ? ' spotify-now-art-wrapper--playing' : ' spotify-now-art-wrapper--paused'}`}
+            style={accentStyle}
+          >
             {/* Glow ring behind artwork — outside overflow:hidden so it bleeds out */}
             <div className="spotify-now-art-glow" style={glowStyle} />
             <div className="spotify-now-art">

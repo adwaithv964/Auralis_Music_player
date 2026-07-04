@@ -107,7 +107,7 @@ export function Sidebar({ collapsed = false, onToggleCollapse }) {
           {/* Settings */}
           <button
             className="action-row"
-            onClick={() => setShowPrefs(true)}
+            onClick={() => { setShowPrefs(true); setMobileNavOpen(false); }}
             title="Preferences"
           >
             <svg><use href="#i-settings" /></svg>

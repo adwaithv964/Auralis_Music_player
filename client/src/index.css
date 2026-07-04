@@ -7577,6 +7577,52 @@ html, body, #root {
   position: relative;
   width: 100%;
   flex-shrink: 0;
+  /* Promote to its own compositor layer so the breathing animation
+     never touches layout or paint — GPU-only transform. */
+  will-change: transform;
+  transform-origin: center center;
+}
+
+/* ── Artwork breathing animation ───────────────────────────────── */
+
+/*
+  art-breathe: slow scale 1.00 → 1.03 → 1.00 simulating a heartbeat.
+  4 s cycle, cubic-bezier gives a natural ease-in-out feel.
+  Applied to the wrapper so overflow:hidden on the inner art box
+  is untouched — no image clipping, no border-radius artifacts.
+*/
+@keyframes art-breathe {
+  0%,  100% { transform: scale(1.000); }
+  50%        { transform: scale(1.030); }
+}
+
+/* Running — music is actively playing */
+.spotify-now-art-wrapper--playing {
+  animation: art-breathe 4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  animation-play-state: running;
+}
+
+/*
+  Paused — freeze the animation at its current scale position.
+  animation-play-state: paused means the artwork stays wherever
+  it was in the cycle rather than snapping back to scale(1).
+  When playback resumes the cycle continues from that exact point.
+*/
+.spotify-now-art-wrapper--paused {
+  animation: art-breathe 4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  animation-play-state: paused;
+}
+
+/*
+  Reduced motion: remove the animation entirely.
+  The artwork displays statically — all other functionality preserved.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .spotify-now-art-wrapper--playing,
+  .spotify-now-art-wrapper--paused {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 /* ── Artwork: glow element ─────────────────────────────────────── */
@@ -7992,4 +8038,126 @@ body[data-theme="light"] .wf-bars--muted .wf-bar {
 }
 
 
+/* ================================================================
+   TRENDING CAROUSEL — SKELETON CARDS
+   Referenced by TrendingCarousel.jsx:
+     .trending-card--skeleton
+     .trending-skeleton
+     .trending-skeleton--text
+   ================================================================ */
 
+@keyframes trending-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.trending-card--skeleton {
+  pointer-events: none;
+  cursor: default;
+  border: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.trending-skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0.04) 30%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 70%
+  );
+  background-size: 400% 100%;
+  animation: trending-shimmer 1.8s ease-in-out infinite;
+  will-change: background-position;
+}
+
+.trending-card__art.trending-skeleton {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+}
+
+.trending-skeleton--text {
+  height: 11px;
+  border-radius: 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trending-skeleton {
+    animation: none;
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+body[data-theme="light"] .trending-skeleton {
+  background: linear-gradient(
+    105deg,
+    rgba(0, 0, 0, 0.05) 30%,
+    rgba(0, 0, 0, 0.12) 50%,
+    rgba(0, 0, 0, 0.05) 70%
+  );
+  background-size: 400% 100%;
+}
+
+
+/* ================================================================
+   PLAYER BAR — PROGRESS SHIMMER BAR
+   Referenced by PlayerBar.jsx: .progress-shimmer-bar
+   ================================================================ */
+
+@keyframes progress-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.progress-shimmer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.28) 50%,
+    transparent 100%
+  );
+  animation: progress-shimmer 1.4s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-shimmer-bar {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+
+/* ================================================================
+   NOW PLAYING — SKELETON
+   Used by SkeletonNowPlaying component.
+   Artwork + title + artist placeholders only.
+   Playback controls are never skeletonized.
+   ================================================================ */
+
+.sk-now-playing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 8px 0 20px;
+  pointer-events: none;
+}
+
+.sk-now-playing__art {
+  width: min(260px, 80%);
+  aspect-ratio: 1 / 1;
+  border-radius: 16px !important;
+}

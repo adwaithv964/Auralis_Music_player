@@ -1,0 +1,286 @@
+/* ================================================================
+   SKELETON LOADING SYSTEM
+   ----------------------------------------------------------------
+   Zero JS animation — 100% CSS shimmer / pulse.
+   All skeleton elements are aria-hidden="true" in JSX, so they
+   are fully invisible to screen readers.
+
+   Table of contents:
+     1. Keyframes
+     2. Base primitive  (.sk-box)
+     3. Track card      (.sk-track-card)
+     4. Artist card     (.sk-artist-card)
+     5. Song row        (.sk-song-row)
+     6. Quick-access    (.sk-quick-access)
+     7. Section wrapper (.sk-section)
+     8. Home page       (.sk-home-page)
+     9. Search page     (.sk-search-page)
+    10. Playlist card   (.sk-playlist-card)
+    11. Fade transition (.sk-fade-in)
+    12. Reduced motion
+    13. Light theme
+   ================================================================ */
+
+/* ── 1. Keyframes ─────────────────────────────────────────────── */
+
+/* Shimmer: sweeps a bright band left-to-right */
+@keyframes sk-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* Pulse: gentle opacity breathe — used when shimmer is disabled */
+@keyframes sk-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 0.8; }
+}
+
+/* ── 2. Base Primitive ────────────────────────────────────────── */
+
+.sk-box {
+  display: block;
+  border-radius: 8px;
+  /* Shimmer gradient: dark → slightly lighter → dark */
+  background: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0.04) 30%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 70%
+  );
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.8s ease-in-out infinite;
+  /* GPU-composited transform to keep animation on the compositor thread */
+  will-change: background-position;
+  /* Never focusable, never interactive */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── 3. Track Card ────────────────────────────────────────────── */
+
+.sk-track-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Match .track-card-premium dimensions exactly */
+  width: 148px;
+  flex-shrink: 0;
+}
+
+.sk-track-card__art {
+  /* Square artwork — same size as .track-card-art */
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.sk-track-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* ── 4. Artist Card ───────────────────────────────────────────── */
+
+.sk-artist-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Match ArtistCard width */
+  width: 128px;
+  flex-shrink: 0;
+}
+
+.sk-artist-card__avatar {
+  /* Circle avatar — same size as artist card image */
+  width: 100px;
+  height: 100px;
+  border-radius: 50% !important;
+}
+
+/* ── 5. Song Row ──────────────────────────────────────────────── */
+
+.sk-song-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  /* Match .track-row height */
+  min-height: 62px;
+  border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sk-song-row__thumb {
+  /* Artwork thumbnail — matches .track-cover size */
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.sk-song-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── 6. Quick-Access Pill Card ────────────────────────────────── */
+
+.sk-quick-access {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* Match .quick-access-card layout */
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0 12px 0 0;
+}
+
+.sk-quick-access__thumb {
+  /* Left square thumbnail in quick access */
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 4px 0 0 4px !important;
+}
+
+/* ── 7. Section Wrapper ───────────────────────────────────────── */
+
+.sk-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.sk-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.sk-section__row {
+  display: flex;
+  gap: 16px;
+  overflow: hidden; /* don't scroll, just clip — matches .home-section scroll snap */
+  padding-bottom: 4px;
+}
+
+/* ── 8. Home Page Layout ──────────────────────────────────────── */
+
+.sk-home-page {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  width: 100%;
+  padding: 0 2px;
+}
+
+.sk-quick-access-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .sk-quick-access-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ── 9. Search Page Layout ────────────────────────────────────── */
+
+.sk-search-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.sk-song-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── 10. Playlist Card ────────────────────────────────────────── */
+
+.sk-playlist-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Match .lib-playlist-card dimensions */
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.sk-playlist-card__art {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+/* ── 11. Fade Transition ──────────────────────────────────────── */
+
+/*
+  Used by AnimatePresence wrapper in Home.jsx.
+  Content fades in on mount, skeleton fades out on exit — no layout jump.
+*/
+.sk-fade-enter {
+  opacity: 0;
+}
+.sk-fade-enter-active {
+  opacity: 1;
+  transition: opacity 200ms ease-out;
+}
+.sk-fade-exit {
+  opacity: 1;
+}
+.sk-fade-exit-active {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  /* Keep dimensions during exit so layout stays stable */
+  pointer-events: none;
+}
+
+/* ── 12. Reduced Motion ───────────────────────────────────────── */
+
+/*
+  When the user prefers reduced motion, replace the sweeping shimmer
+  with a gentler opacity pulse. No flashing, no sweeping gradient.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .sk-box {
+    animation: sk-pulse 2s ease-in-out infinite;
+    background: rgba(255, 255, 255, 0.07);
+    background-size: unset;
+    will-change: opacity;
+  }
+}
+
+/* ── 13. Light Theme ──────────────────────────────────────────── */
+
+body[data-theme="light"] .sk-box {
+  background: linear-gradient(
+    105deg,
+    rgba(0, 0, 0, 0.05) 30%,
+    rgba(0, 0, 0, 0.12) 50%,
+    rgba(0, 0, 0, 0.05) 70%
+  );
+  background-size: 400% 100%;
+}
+
+body[data-theme="light"] .sk-quick-access {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme="light"] .sk-box {
+    background: rgba(0, 0, 0, 0.08);
+  }
+}

@@ -16,6 +16,7 @@ import { SuggestionItem }     from '../../components/common/SuggestionItem';
 import { LangTabs }           from '../../components/common/LangTabs';
 import { TrendingCarousel }   from '../../components/home/TrendingCarousel';
 import { useTrendingSongs }   from '../../hooks/useTrendingSongs';
+import { SkeletonHomePage }   from '../../components/Skeleton/Skeleton';
 
 // ── Mood discovery definitions ───────────────────────────────
 const MOOD_CARDS = [
@@ -346,20 +347,18 @@ export function Home() {
         {/* ══════════════════════════════════════════════════════
             LOADING SKELETON
         ════════════════════════════════════════════════════════ */}
-        {isFirstLoad && (
-          <div className="home-skeleton">
-            {[1,2,3].map(s => (
-              <div key={s} className="skeleton-section">
-                <div className="skeleton-title" />
-                <div className="skeleton-row">
-                  {[1,2,3,4,5].map(c => (
-                    <div key={c} className="skeleton-card" />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <AnimatePresence>
+          {isFirstLoad && (
+            <motion.div
+              key="home-skeleton"
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              <SkeletonHomePage />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ══════════════════════════════════════════════════════
             SECTION 1: Continue Listening
