@@ -62,6 +62,12 @@ import { create } from 'zustand';
  * @property {number}        playbackRate     - Playback speed (default 1.0)
  * @property {number}        crossfadeSeconds - Crossfade duration in seconds (Phase 2, default 0)
  *
+ * ── Phase 3: Equalizer & Audio Quality ─────────────────────────────────────────
+ * @property {string}        eqPreset         - Active EQ preset id ('flat', 'bass-boost', etc.)
+ * @property {number[]}      eqBands          - Current 5-band EQ gains in dB
+ * @property {string}        streamQuality    - Stream quality tier ('low'|'normal'|'high'|'lossless')
+ * @property {boolean}       loudnessNormalizationEnabled - Whether loudness normalization is active
+ *
  * ── Playback modes ────────────────────────────────────────────────────────────
  * @property {RepeatMode}    repeatMode       - 'none' | 'one' | 'all'
  * @property {boolean}       shuffleMode      - True when shuffle is active
@@ -93,6 +99,10 @@ import { create } from 'zustand';
  * @property {Function}      setVolume
  * @property {Function}      setPlaybackRate
  * @property {Function}      setCrossfadeSeconds
+ * @property {Function}      setEQPreset
+ * @property {Function}      setEQBands
+ * @property {Function}      setStreamQuality
+ * @property {Function}      setLoudnessNormalizationEnabled
  * @property {Function}      setRepeatMode
  * @property {Function}      setShuffleMode
  * @property {Function}      setAudioReady
@@ -124,6 +134,12 @@ export const usePlayerStore = create((set, get) => ({
   volume:           0.62, // Matches DEFAULT_PREFS.volume / 100
   playbackRate:     1.0,
   crossfadeSeconds: 0,    // Phase 2: reserved for future crossfade implementation
+
+  // ── Phase 3: Equalizer & Audio Quality ─────────────────────────────────────
+  eqPreset:                    'flat',       // Active EQ preset id
+  eqBands:                     [0, 0, 0, 0, 0], // Current 5-band gains (dB)
+  streamQuality:               'normal',    // Stream quality tier
+  loudnessNormalizationEnabled: true,       // Loudness normalization toggle
 
   // ── Playback modes ───────────────────────────────────────────────────────────
   repeatMode:   'none',  // 'none' | 'one' | 'all'
@@ -245,6 +261,36 @@ export const usePlayerStore = create((set, get) => ({
   setCrossfadeSeconds: (crossfadeSeconds) => set({
     crossfadeSeconds: Math.max(0, crossfadeSeconds),
   }),
+
+  // ── Phase 3: Equalizer & Audio Quality ────────────────────────────────────
+
+  /**
+   * Set the active EQ preset id.
+   * @param {string} eqPreset - e.g. 'flat', 'bass-boost', 'custom'
+   */
+  setEQPreset: (eqPreset) => set({ eqPreset: typeof eqPreset === 'string' ? eqPreset : 'flat' }),
+
+  /**
+   * Replace the 5-band EQ gains array (immutable).
+   * @param {number[]} eqBands - Array of exactly 5 dB values
+   */
+  setEQBands: (eqBands) => set({
+    eqBands: Array.isArray(eqBands) && eqBands.length === 5
+      ? [...eqBands]
+      : [0, 0, 0, 0, 0],
+  }),
+
+  /**
+   * Set the stream quality tier.
+   * @param {string} streamQuality - 'low' | 'normal' | 'high' | 'lossless'
+   */
+  setStreamQuality: (streamQuality) => set({ streamQuality }),
+
+  /**
+   * Toggle loudness normalization on or off.
+   * @param {boolean} loudnessNormalizationEnabled
+   */
+  setLoudnessNormalizationEnabled: (loudnessNormalizationEnabled) => set({ loudnessNormalizationEnabled }),
 
   // ── Playback modes ───────────────────────────────────────────────────────────
 

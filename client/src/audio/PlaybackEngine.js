@@ -52,12 +52,20 @@ import { sessionPersistence }   from './SessionPersistence';
 import { audioLogger }          from './AudioLogger';
 import { AudioEvent }           from './AudioEvents';
 import { PlaybackEvent }        from './PlaybackEvents';
+import { EQEvent }              from './EQEvents';
 import { usePlayerStore }       from '../store/playerStore';
 import {
   setMediaSessionMetadata,
   setMediaSessionHandlers,
   setMediaSessionPlaybackState,
 } from './MediaSession';
+
+// ─── Phase 3 imports ────────────────────────────────────────────────────────────────────
+
+import { eqEngine }              from './EQEngine';
+import { audioQualityManager }   from './AudioQualityManager';
+import { loudnessNormalizer }    from './LoudnessNormalizer';
+import { audioSettingsPersistence } from './AudioSettingsPersistence';
 
 // ─── PlaybackEngine class ─────────────────────────────────────────────────────
 
@@ -124,6 +132,25 @@ class PlaybackEngine {
       store: usePlayerStore.getState(),
       audio: audioEngine.primaryAudio,
     }));
+
+    // ── Phase 3: Initialise audio quality and loudness subsystems ────────────────
+    // EQEngine.init() is deferred until after the audio pipeline is ready
+    // (called from play() on first gesture). audioQualityManager and
+    // loudnessNormalizer can be initialised immediately since they only
+    // read from localStorage and don't require the AudioContext.
+    audioQualityManager.init();
+    loudnessNormalizer.init();
+
+    // Restore saved playback speed preference
+    try {
+      const settings = audioSettingsPersistence.load();
+      if (settings.playbackRate && settings.playbackRate !== 1.0) {
+        audioEngine.setPlaybackRate(settings.playbackRate);
+        audioLogger.info(EQEvent.SPEED_CHANGED, `Speed restored: ${settings.playbackRate}x`);
+      }
+    } catch (err) {
+      audioLogger.warn('playback-engine', 'Failed to restore playback speed', err);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -338,14 +365,78 @@ class PlaybackEngine {
     audioEngine.setVolume(volume);
   }
 
-  /** @param {number} rate */
+  /**
+   * Set the playback speed.
+   * Supported rates: 0.5, 0.75, 1.0, 1.25, 1.5, 2.0
+   * @param {number} rate
+   */
   setPlaybackRate(rate) {
     audioEngine.setPlaybackRate(rate);
+    // Persist the new speed preference
+    audioSettingsPersistence.save({ playbackRate: rate });
+    audioLogger.info(EQEvent.SPEED_CHANGED, `Playback speed: ${rate}x`);
   }
 
   /** @param {boolean} muted */
   setMuted(muted) {
     audioEngine.setMuted(muted);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Public API — Phase 3: Equalizer & Audio Quality
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Apply a named EQ preset.
+   * @param {string} presetId - e.g. 'flat', 'bass-boost', 'vocal'
+   */
+  setEQPreset(presetId) {
+    // Ensure EQEngine is initialised (safe to call multiple times)
+    eqEngine.init();
+    eqEngine.applyPreset(presetId);
+  }
+
+  /**
+   * Set a single EQ band gain.
+   * @param {number} bandIndex - 0–4
+   * @param {number} gainDb    - ±12 dB
+   */
+  setEQBand(bandIndex, gainDb) {
+    eqEngine.init();
+    eqEngine.setBand(bandIndex, gainDb);
+  }
+
+  /**
+   * Reset all EQ bands to flat (0 dB).
+   */
+  resetEQ() {
+    eqEngine.init();
+    eqEngine.resetAll();
+  }
+
+  /**
+   * Return all available EQ presets (for UI preset pickers).
+   * @returns {import('./EQEngine').EQPreset[]}
+   */
+  getEQPresets() {
+    return eqEngine.getPresets();
+  }
+
+  /**
+   * Set the stream quality preference.
+   * Change takes effect on the next track load.
+   * @param {string} tier - 'low' | 'normal' | 'high' | 'lossless'
+   */
+  setStreamQuality(tier) {
+    audioQualityManager.setQuality(tier);
+  }
+
+  /**
+   * Enable or disable loudness normalization.
+   * @param {boolean} enabled
+   */
+  setLoudnessNormalization(enabled) {
+    loudnessNormalizer.setEnabled(enabled);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -510,11 +601,17 @@ class PlaybackEngine {
       return;
     }
 
-    // ── Step 3: Load into primary audio element ────────────────────────────
+    // ── Phase 3: Decorate URL with quality parameter ──────────────────────────
+    streamUrl = audioQualityManager.decorateUrl(streamUrl);
+
+    // ── Step 3: Load into primary audio element ──────────────────────────────
     audioEngine.loadTrack(streamUrl);
 
-    // ── Step 4: Start playback ─────────────────────────────────────────────
+    // ── Step 4: Start playback ────────────────────────────────────────────────────
     await audioEngine.play();
+
+    // ── Phase 3: Ensure EQ engine is initialised (pipeline is now ready) ─────
+    eqEngine.init();
 
     // Stale-load guard — check again after async play()
     if (this._currentSongId !== songId) return;
@@ -526,8 +623,11 @@ class PlaybackEngine {
     // ── Step 6: Apply any pending seek position (from session restore) ─────
     this._applyPendingSeek();
 
-    // ── Step 7: Update Media Session ──────────────────────────────────────
+    // ── Step 7: Update Media Session ─────────────────────────────────────────
     this._updateMediaSession(song);
+
+    // ── Phase 3: Apply loudness normalization for this track ─────────────────
+    loudnessNormalizer.applyForSong(song);
 
     // ── Step 8: Reset + re-arm stall recovery ─────────────────────────────
     stallRecovery.reset();
@@ -573,30 +673,36 @@ class PlaybackEngine {
    * @private
    */
   _updateMediaSession(song) {
-    setMediaSessionMetadata({
-      title:      song.title      || '',
-      artist:     song.artist     || '',
-      album:      song.album      || '',
-      artworkUrl: song.artworkUrl || '',
-    });
+    try {
+      setMediaSessionMetadata({
+        title:      song.title      || '',
+        artist:     song.artist     || '',
+        album:      song.album      || '',
+        artworkUrl: song.image?.[0]?.link || song.artworkUrl || song.image || '',
+      });
 
-    setMediaSessionHandlers({
-      onPlay:     () => this.resume(),
-      onPause:    () => this.pause(),
-      onNext:     () => this.next(),
-      onPrev:     () => this.previous(),
-      onSeekTo:   (details) => {
-        if (details?.seekTime != null) this.seekToSeconds(details.seekTime);
-      },
-      onSeekFwd:  (details) => {
-        const skip = details?.seekOffset || 10;
-        this.seekToSeconds((audioEngine.primaryAudio.currentTime || 0) + skip);
-      },
-      onSeekBwd:  (details) => {
-        const skip = details?.seekOffset || 10;
-        this.seekToSeconds(Math.max(0, (audioEngine.primaryAudio.currentTime || 0) - skip));
-      },
-    });
+      setMediaSessionHandlers({
+        onPlay:     () => this.resume(),
+        onPause:    () => this.pause(),
+        onNext:     () => this.next(),
+        onPrev:     () => this.previous(),
+        onSeekTo:   (details) => {
+          if (details?.seekTime != null) this.seekToSeconds(details.seekTime);
+        },
+        onSeekFwd:  (details) => {
+          const skip = details?.seekOffset || 10;
+          this.seekToSeconds((audioEngine.primaryAudio.currentTime || 0) + skip);
+        },
+        onSeekBwd:  (details) => {
+          const skip = details?.seekOffset || 10;
+          this.seekToSeconds(Math.max(0, (audioEngine.primaryAudio.currentTime || 0) - skip));
+        },
+      });
+
+      audioLogger.log(EQEvent.MEDIA_SESSION_UPDATED, `Media Session updated: "${song.title}"`);
+    } catch (err) {
+      audioLogger.warn(EQEvent.MEDIA_SESSION_ERROR, 'Media Session update failed (non-fatal)', err);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

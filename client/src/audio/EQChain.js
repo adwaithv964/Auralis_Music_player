@@ -9,11 +9,11 @@
  *
  *   Band │ Type       │ Frequency │ Q     │ Purpose
  *   ─────┼────────────┼───────────┼───────┼──────────────────────────────
- *     0  │ lowshelf   │   60 Hz   │  —    │ Bass/sub-bass body
+ *     0  │ lowshelf   │   80 Hz   │  —    │ Bass/sub-bass body
  *     1  │ peaking    │  250 Hz   │  1.0  │ Low-mid warmth / muddiness
  *     2  │ peaking    │ 1000 Hz   │  1.0  │ Midrange presence
  *     3  │ peaking    │ 4000 Hz   │  1.0  │ Upper-mid / clarity
- *     4  │ highshelf  │ 16000 Hz  │  —    │ Air / brightness
+ *     4  │ highshelf  │ 12000 Hz  │  —    │ Air / brightness
  *
  * Usage:
  *   import { createEQChain } from './EQChain';
@@ -45,11 +45,11 @@ import { audioLogger } from './AudioLogger';
 
 /** @type {BandDefinition[]} */
 const BAND_DEFINITIONS = [
-  { label: 'Bass',      type: 'lowshelf',  frequency:    60, defaultGain: 0 },
+  { label: 'Bass',      type: 'lowshelf',  frequency:    80, defaultGain: 0 },
   { label: 'Low-Mid',   type: 'peaking',   frequency:   250, Q: 1.0, defaultGain: 0 },
   { label: 'Mid',       type: 'peaking',   frequency:  1000, Q: 1.0, defaultGain: 0 },
   { label: 'Upper-Mid', type: 'peaking',   frequency:  4000, Q: 1.0, defaultGain: 0 },
-  { label: 'Treble',    type: 'highshelf', frequency: 16000, defaultGain: 0 },
+  { label: 'Treble',    type: 'highshelf', frequency: 12000, defaultGain: 0 },
 ];
 
 // ─── Gain clamping ────────────────────────────────────────────────────────────

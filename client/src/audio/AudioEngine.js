@@ -94,6 +94,14 @@ class AudioEngine {
     /** @type {import('./EQChain').EQChain|null} */
     this._eqChain = null;
 
+    /**
+     * Phase 3: Loudness normalization GainNode.
+     * Sits between the EQChain output and the AnalyserNode.
+     * Controlled exclusively by LoudnessNormalizer — do not touch directly.
+     * @type {GainNode|null}
+     */
+    this._loudnessGainNode = null;
+
     /** @type {AnalyserNode|null} */
     this._analyserNode = null;
 
@@ -189,10 +197,16 @@ class AudioEngine {
       this._gainNode = this._audioContext.createGain();
       this._gainNode.gain.value = usePlayerStore.getState().volume;
 
+      // 5b. Create the Phase 3 loudness normalization GainNode.
+      //     Default gain = 1.0 (unity). LoudnessNormalizer controls this node.
+      this._loudnessGainNode            = this._audioContext.createGain();
+      this._loudnessGainNode.gain.value = 1.0;
+
       // 6. Wire the graph:
-      //    MediaElementSource → EQ.inputNode → EQ.outputNode → Analyser → Gain → Destination
+      //    MediaElementSource → EQChain → LoudnessGain → Analyser → MasterGain → Destination
       this._primarySourceNode.connect(this._eqChain.inputNode);
-      this._eqChain.outputNode.connect(this._analyserNode);
+      this._eqChain.outputNode.connect(this._loudnessGainNode);
+      this._loudnessGainNode.connect(this._analyserNode);
       this._analyserNode.connect(this._gainNode);
       this._gainNode.connect(this._audioContext.destination);
 
@@ -380,7 +394,12 @@ class AudioEngine {
    */
   setPlaybackRate(rate) {
     const clamped = Math.max(0.25, Math.min(4.0, rate));
-    this.primaryAudio.playbackRate = clamped;
+
+    // Apply to both audio elements to keep secondary element in sync
+    // (used for gapless / crossfade prefetch — both must play at the same rate)
+    this.primaryAudio.playbackRate   = clamped;
+    this.secondaryAudio.playbackRate = clamped;
+
     usePlayerStore.getState().setPlaybackRate(clamped);
   }
 
@@ -514,6 +533,16 @@ class AudioEngine {
     return this._eqChain;
   }
 
+  /**
+   * Phase 3: Return the loudness normalization GainNode.
+   * Used exclusively by LoudnessNormalizer to apply per-track gain correction.
+   * Returns null if the pipeline has not been initialised yet.
+   * @returns {GainNode|null}
+   */
+  getLoudnessGainNode() {
+    return this._loudnessGainNode;
+  }
+
   // ─── Cleanup ────────────────────────────────────────────────────────────────
 
   /**
@@ -533,15 +562,17 @@ class AudioEngine {
     try { this.secondaryAudio.pause(); this.secondaryAudio.src = ''; } catch { /* ignore */ }
 
     // Disconnect all nodes
-    try { this._primarySourceNode?.disconnect(); } catch { /* ignore */ }
-    try { this._eqChain?.disconnect();           } catch { /* ignore */ }
-    try { this._analyserNode?.disconnect();      } catch { /* ignore */ }
-    try { this._gainNode?.disconnect();          } catch { /* ignore */ }
+    try { this._primarySourceNode?.disconnect();   } catch { /* ignore */ }
+    try { this._eqChain?.disconnect();             } catch { /* ignore */ }
+    try { this._loudnessGainNode?.disconnect();    } catch { /* ignore */ }
+    try { this._analyserNode?.disconnect();        } catch { /* ignore */ }
+    try { this._gainNode?.disconnect();            } catch { /* ignore */ }
 
-    this._primarySourceNode = null;
-    this._eqChain           = null;
-    this._analyserNode      = null;
-    this._gainNode          = null;
+    this._primarySourceNode  = null;
+    this._eqChain            = null;
+    this._loudnessGainNode   = null;
+    this._analyserNode       = null;
+    this._gainNode           = null;
     this._pipelineReady     = false;
 
     // Reset store
