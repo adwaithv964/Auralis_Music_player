@@ -1,11 +1,18 @@
 /**
  * context/PlayerContext.jsx
  *
- * Owns all audio-playback state:
- *   - currentTrack, shuffle, repeat, resolvingId
- *   - resolvedCache (YouTube resolution memoization)
- *   - Audio engine (isPlaying, play, pause, seek, progress, elapsed, duration)
- *   - Handlers: handlePlay, handlePrev, handleNext, togglePlay, toggleFavorite
+ * Owns all audio-playback state surfaced to React components.
+ *
+ * Phase 2 migration:
+ *   - All stream resolution now delegates to PlaybackEngine / StreamResolver.
+ *   - All session persistence now delegates to SessionPersistence.
+ *   - All queue operations now delegate to PlaybackEngine / QueueEngine.
+ *   - Auto-advance on 'ended' is handled by PlaybackEngine internally.
+ *   - Media Session is managed by PlaybackEngine internally.
+ *
+ * The public context API remains 100% identical to the Phase 1 version.
+ * All component consumers (NowPlaying, PlayerBar, BottomNav, Home, etc.)
+ * require zero changes.
  *
  * Consumes AppContext for localTracks, externalTracks, prefs, setFavorites.
  */
@@ -13,88 +20,26 @@ import {
   createContext, useContext, useState, useEffect,
   useCallback, useMemo, useRef,
 } from 'react';
-import { useAudioEngine } from '../hooks/useAudioEngine';
-import { useApp }         from './AppContext';
-import { api }            from '../services/api';
-import { trackHasAudio } from '../utils/audioHelpers';
+import { useAudioEngine }    from '../hooks/useAudioEngine';
+import { audioEngine }       from '../audio/AudioEngine';
+import { playbackEngine }    from '../audio/PlaybackEngine';
+import { queueEngine }       from '../audio/QueueEngine';
+import { sessionPersistence } from '../audio/SessionPersistence';
+import { usePlayerStore }    from '../store/playerStore';
+import { useApp }            from './AppContext';
+import { api }               from '../services/api';
+import { trackHasAudio }     from '../utils/audioHelpers';
 
 export const PlayerContext = createContext(null);
 
-const LS_KEY        = 'auralis:lastTrack';
-const LS_POS_KEY    = 'auralis:lastPosition';
-const LS_STREAM_KEY = 'auralis:streamCache'; // short-lived: cleared after use
+// ─── Legacy localStorage key (write-compat only — reads migrated by SessionPersistence) ──
+const LS_POS_KEY = 'auralis:lastPosition'; // kept for backward compat writes
 
-/** Save a lightweight snapshot.
- *  - Audius / local tracks: keep previewUrl (stable URLs)
- *  - YouTube CDN URLs: omit (they expire in ~6 hours)
- */
-function saveLastTrack(track, positionSec = 0) {
-  if (!track) return;
-  try {
-    const isStableUrl = track.sourceType === 'audius' || track.sourceType === 'local';
-    const snap = {
-      id:         track.id,
-      title:      track.title,
-      artist:     track.artist,
-      album:      track.album,
-      artworkUrl: track.artworkUrl,
-      duration:   track.duration,
-      genre:      track.genre,
-      year:       track.year,
-      color:      track.color,
-      sourceType: track.sourceType,
-      // Keep previewUrl only for non-expiring sources
-      ...(isStableUrl && track.previewUrl ? { previewUrl: track.previewUrl } : {}),
-    };
-    localStorage.setItem(LS_KEY,     JSON.stringify(snap));
-    localStorage.setItem(LS_POS_KEY, String(Math.floor(positionSec || 0)));
-  } catch {}
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Cache the live YouTube stream URL right before unload so we can restore instantly */
-function saveStreamCache(streamUrl, positionSec) {
-  try {
-    localStorage.setItem(LS_STREAM_KEY, JSON.stringify({
-      url:       streamUrl,
-      position:  Math.floor(positionSec || 0),
-      savedAt:   Date.now(),
-    }));
-  } catch {}
-}
-
-/** Load the cached stream — only valid if saved less than 90 seconds ago */
-function loadStreamCache() {
-  try {
-    const raw = localStorage.getItem(LS_STREAM_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    // YouTube stream URLs are valid for ~6 hours, but to be safe use within 90s
-    if (Date.now() - obj.savedAt > 90_000) {
-      localStorage.removeItem(LS_STREAM_KEY);
-      return null;
-    }
-    return obj; // { url, position }
-  } catch {
-    return null;
-  }
-}
-
-function loadLastTrack() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function loadLastPosition() {
-  try {
-    const raw = localStorage.getItem(LS_POS_KEY);
-    return raw ? parseInt(raw, 10) : 0;
-  } catch {
-    return 0;
-  }
+/** Return true if a track object has the minimum fields to attempt playback. */
+function isPlayableSong(track) {
+  return track != null && track.id != null && typeof track.title === 'string';
 }
 
 export function PlayerProvider({ children }) {
@@ -108,51 +53,94 @@ export function PlayerProvider({ children }) {
     setPlayHistory,
   } = useApp();
 
-  // ── Playback state — restore last track on mount ─────────────
+  // ── Zustand store subscriptions ─────────────────────────────────────────────
+  // Read currentSong from the store (PlaybackEngine writes it on each song start)
+  const storeSong = usePlayerStore(s => s.currentSong);
+
+  // ── Local UI state ──────────────────────────────────────────────────────────
+  /**
+   * currentTrack mirrors the store's currentSong but also carries transient
+   * loading/resolution flags (ytLoading, unavailable) that aren't in the store.
+   * On initial mount we populate from session restore (done below).
+   */
   const [currentTrack, setCurrentTrackRaw] = useState(() => {
-    const saved = loadLastTrack();
-    if (!saved) return null;
-    if (saved.sourceType === 'itunes' || saved.ytResolved) {
-      return { ...saved, previewUrl: '', ytResolved: false };
-    }
-    return saved;
+    // Session restore is deferred to useEffect — start null or with store value
+    return null;
   });
-  const [shuffle,      setShuffle]         = useState(false);
-  const [repeat,       setRepeat]          = useState(false);
-  const [resolvingId,  setResolvingId]     = useState(null);
-  const [queue,        setQueue]           = useState([]);   // up-next queue
-  const [activeQueue,  setActiveQueue]     = useState([]);   // base list for playback
 
-  /** Memoize resolved YouTube stream URLs to avoid re-resolving */
-  const resolvedCache = useRef(new Map());
+  const [shuffle,      setShuffle]     = useState(false);
+  const [repeat,       setRepeat]      = useState(false);
+  const [resolvingId,  setResolvingId] = useState(null);
+  const [queue,        setQueueState]  = useState([]);   // mirrors store.queue for context consumers
+  const [activeQueue,  setActiveQueueState] = useState([]); // mirrors store.activeQueue
 
-  // ── Audio engine — must be declared BEFORE setCurrentTrack ───
+  // ── Audio engine hook (Phase 1 compat) ───────────────────────────────────────
   const { isPlaying, play, pause, seek, progress, elapsed, duration, audioRef } =
     useAudioEngine(currentTrack, prefs);
 
-  /** Wrap setCurrentTrack so every change is persisted */
+  // ── Keep local currentTrack in sync with the store ────────────────────────
+  // When PlaybackEngine updates the store (after stream resolves + play starts),
+  // mirror it to local state so all context consumers see the update.
+  useEffect(() => {
+    if (storeSong && storeSong.id !== currentTrack?.id) {
+      setCurrentTrackRaw(storeSong);
+    }
+  }, [storeSong]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Keep local queue state in sync with the store ─────────────────────────
+  const storeQueue       = usePlayerStore(s => s.queue);
+  const storeActiveQueue = usePlayerStore(s => s.activeQueue);
+
+  useEffect(() => {
+    setQueueState(storeQueue);
+  }, [storeQueue]);
+
+  useEffect(() => {
+    setActiveQueueState(storeActiveQueue);
+  }, [storeActiveQueue]);
+
+  // ── Wrap setCurrentTrack so every change is surfaced locally ────────────────
   const setCurrentTrack = useCallback((track) => {
     setCurrentTrackRaw(track);
-    if (track) saveLastTrack(track, audioRef.current?.currentTime);
-  }, [audioRef]);
+    if (track) {
+      usePlayerStore.getState().setCurrentSong(track);
+    }
+  }, []);
 
-
-  // ── Derived: all tracks the player can queue ─────────────────
+  // ── Derived: all tracks the player can navigate ──────────────────────────────
   const playableTracks = useMemo(() => [
     ...localTracks.filter(trackHasAudio),
     ...externalTracks.filter(trackHasAudio),
   ], [localTracks, externalTracks]);
 
-  // ── Toggle play/pause ────────────────────────────────────────
+  // ── Toggle play/pause ────────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
-    isPlaying ? pause() : play();
-  }, [isPlaying, play, pause]);
+    isPlaying ? playbackEngine.pause() : playbackEngine.resume();
+  }, [isPlaying]);
 
-  // ── Core play handler ────────────────────────────────────────
+  // ── Core play handler ────────────────────────────────────────────────────────
+  /**
+   * handlePlay — the single entry point for playing a song from the UI.
+   *
+   * In Phase 2 this delegates to PlaybackEngine.playSong() which handles:
+   *   - Stream URL resolution (StreamResolver)
+   *   - Audio loading + playback (AudioEngine)
+   *   - Store updates + Media Session
+   *   - Stall recovery setup
+   *   - Prefetch arming
+   *   - Session saving
+   *
+   * We preserve the resolvingId loading indicator and the playHistory side-effect
+   * for backward compatibility with NowPlaying / search UI components.
+   */
   const handlePlay = useCallback(async (track) => {
-    if (!trackHasAudio(track)) return;
+    if (!trackHasAudio(track) && !isPlayableSong(track)) return;
 
-    /** Push to in-memory history immediately (optimistic) and save to DB */
+    // Optimistically set local state for immediate UI feedback
+    setCurrentTrackRaw({ ...track, ytLoading: !track.previewUrl });
+    if (!track.previewUrl) setResolvingId(track.id);
+
+    // Push to local play history (optimistic + DB)
     const pushHistory = (t) => {
       const snap = {
         id: t.id, title: t.title, artist: t.artist,
@@ -165,258 +153,113 @@ export function PlayerProvider({ children }) {
         const filtered = prev.filter(h => h.id !== t.id);
         return [snap, ...filtered].slice(0, 50);
       });
-      api.saveHistory(t); // fire-and-forget, never throws
+      api.saveHistory(t); // fire-and-forget
     };
 
-    // Already resolved → instant play from cache
-    if (resolvedCache.current.has(track.id)) {
-      const resolved = resolvedCache.current.get(track.id);
-      setCurrentTrack(resolved);
-      setTimeout(() => play(), 30);
-      pushHistory(resolved);
-      return;
-    }
-
-    // Has a working previewUrl AND it's not an expired iTunes URL →  direct play
-    const hasWorkingUrl = !!(track.previewUrl) && track.sourceType !== 'itunes';
-    if (hasWorkingUrl) {
-      setCurrentTrack(track);
-      setTimeout(() => play(), 30);
-      pushHistory(track);
-      return;
-    }
-
-    // Audius / local with stable URL → direct play
-    if ((track.sourceType === 'audius' || track.sourceType === 'local') && track.previewUrl) {
-      setCurrentTrack(track);
-      setTimeout(() => play(), 30);
-      pushHistory(track);
-      return;
-    }
-
-    // iTunes track OR history snapshot (no previewUrl) → resolve via JioSaavn
-    pause();
-    setCurrentTrack({ ...track, previewUrl: '', ytLoading: true });
-    setResolvingId(track.id);
-
     try {
-      const res = await fetch(
-        `/api/saavn/stream?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist || '')}`
-      );
+      // Delegate full resolution + playback pipeline to PlaybackEngine
+      await playbackEngine.playSong(track);
 
-      if (res.status === 404) {
-        // Track not on JioSaavn — show it as unavailable instead of silent failure
-        console.warn('[JioSaavn] Track not found:', track.title);
-        setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
-        setResolvingId(null);
-        return;
+      // After PlaybackEngine resolves and starts playback, the store.currentSong
+      // will be updated (possibly with a resolved URL). Read the final song from store.
+      const resolvedTrack = usePlayerStore.getState().currentSong || track;
+      setCurrentTrackRaw(resolvedTrack);
+
+      if (!resolvedTrack.unavailable) {
+        pushHistory(resolvedTrack);
       }
-
-      if (!res.ok) throw new Error(`Saavn resolve failed: ${res.status}`);
-
-      const saavn = await res.json();
-      if (saavn?.streamUrl) {
-        const fullTrack = {
-          ...track,
-          previewUrl:  saavn.streamUrl,
-          isFull:      true,
-          ytResolved:  true,
-          sourceType:  'itunes',
-          contentType: saavn.contentType || 'audio/mp4',
-          lyrics:      ['Full track via JioSaavn', track.artist, track.album],
-        };
-        resolvedCache.current.set(track.id, fullTrack);
-        setCurrentTrack(fullTrack);
-        setTimeout(() => play(), 80);
-        pushHistory(fullTrack);
-      }
-    } catch (e) {
-      console.warn('[JioSaavn resolve failed]', e.message);
-      setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
+    } catch (err) {
+      console.warn('[PlayerContext] handlePlay error:', err?.message);
+      setCurrentTrackRaw({ ...track, unavailable: true, ytLoading: false });
     } finally {
       setResolvingId(null);
     }
-  }, [play, pause, setPlayHistory]);
+  }, [setPlayHistory]);
 
-  // ── Set active queue and start playback ──────────────────────
-  /**
-   * Primary entry point for starting playback from any source.
-   * Replaces the active queue with the given list and starts playing startTrack.
-   * All Next/Prev/auto-advance operations will then navigate within tracks[].
-   */
+  // ── Set active queue and start playback ─────────────────────────────────────
   const setActiveQueueAndPlay = useCallback((tracks, startTrack) => {
     if (!tracks || tracks.length === 0) return;
-    setActiveQueue(tracks);
-    handlePlay(startTrack || tracks[0]);
-  }, [handlePlay]);
-
-  // ── Previous track ───────────────────────────────────────────
-  const handlePrev = useCallback(() => {
-    // Use activeQueue when available, fall back to global playableTracks
-    const source = activeQueue.length > 0 ? activeQueue : playableTracks;
-    if (!source.length) return;
-    const idx = source.findIndex(t => t.id === currentTrack?.id);
-    handlePlay(source[(idx - 1 + source.length) % source.length]);
-  }, [activeQueue, playableTracks, currentTrack, handlePlay]);
-
-  // ── Next track (drains manual queue first, then respects shuffle + repeat) ─
-  const handleNext = useCallback(() => {
-    // Drain the manual up-next queue first
-    if (queue.length > 0) {
-      const [next, ...rest] = queue;
-      setQueue(rest);
-      handlePlay(next);
-      return;
-    }
-
-    // Use activeQueue when available, fall back to global playableTracks
-    const source = activeQueue.length > 0 ? activeQueue : playableTracks;
-    if (!source.length) return;
-
-    // Repeat One — stay on same track
-    if (repeat) {
-      const idx = source.findIndex(t => t.id === currentTrack?.id);
-      if (idx !== -1) handlePlay(source[idx]);
-      return;
-    }
-
-    // Shuffle — random within active source
-    if (shuffle) {
-      handlePlay(source[Math.floor(Math.random() * source.length)]);
-      return;
-    }
-
-    // Normal advance
-    const idx = source.findIndex(t => t.id === currentTrack?.id);
-    const nextIdx = idx + 1;
-
-    if (nextIdx >= source.length) {
-      // End of queue — stop gracefully (no wrap without repeat)
-      pause();
-      return;
-    }
-
-    handlePlay(source[nextIdx]);
-  }, [activeQueue, playableTracks, currentTrack, shuffle, repeat, handlePlay, queue, pause]);
-
-  /** Add a track to the end of the manual queue */
-  const addToQueue = useCallback((track) => {
-    setQueue(prev => [...prev, track]);
+    playbackEngine.setActiveQueueAndPlay(tracks, startTrack || tracks[0]);
+    setCurrentTrackRaw(startTrack || tracks[0]);
   }, []);
 
-  /** Clear the manual queue */
-  const clearQueue = useCallback(() => setQueue([]), []);
+  // ── Previous / Next ──────────────────────────────────────────────────────────
+  const handlePrev = useCallback(() => {
+    playbackEngine.previous();
+  }, []);
 
-  // ── Auto-advance on track end ────────────────────────────────
+  const handleNext = useCallback(() => {
+    playbackEngine.next();
+  }, []);
+
+  // ── Queue actions (delegate to PlaybackEngine) ───────────────────────────────
+  const addToQueue = useCallback((track) => {
+    playbackEngine.addToQueue(track);
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    playbackEngine.clearQueue();
+  }, []);
+
+  // ── Sync shuffle/repeat to PlaybackEngine ────────────────────────────────────
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onEnded = () => handleNext();
-    audio.addEventListener('ended', onEnded);
-    return () => audio.removeEventListener('ended', onEnded);
-  }, [audioRef, handleNext]);
+    playbackEngine.setShuffleMode(shuffle);
+  }, [shuffle]);
 
-  // ── Save playback position periodically (every 5s) ───────────
+  useEffect(() => {
+    // Map boolean repeat → repeatMode string ('one' when true for backward compat)
+    playbackEngine.setRepeatMode(repeat ? 'one' : 'none');
+    usePlayerStore.getState().setRepeatMode(repeat ? 'one' : 'none');
+  }, [repeat]);
+
+  // ── Volume sync ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const rawVolume = prefs?.volume ?? 62;
+    const normalised = Math.min(1, Math.max(0, rawVolume / 100));
+    playbackEngine.setVolume(normalised);
+  }, [prefs?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Save playback position periodically (legacy compat key) ─────────────────
+  // SessionPersistence handles the primary save; this writes the legacy key
+  // so any code still reading auralis:lastPosition continues to work.
   useEffect(() => {
     const interval = setInterval(() => {
       const audio = audioRef.current;
       if (audio && !audio.paused && currentTrack) {
-        localStorage.setItem(LS_POS_KEY, String(Math.floor(audio.currentTime || 0)));
+        try {
+          localStorage.setItem(LS_POS_KEY, String(Math.floor(audio.currentTime || 0)));
+        } catch { /* ignore */ }
       }
     }, 5000);
     return () => clearInterval(interval);
   }, [audioRef, currentTrack]);
 
-  // ── Save stream URL on page unload (for instant restore after refresh) ─
+  // ── Session restore on mount ─────────────────────────────────────────────────
+  const didRestore = useRef(false);
   useEffect(() => {
-    const onUnload = () => {
-      const audio = audioRef.current;
-      if (!audio || !currentTrack) return;
-      const src = audio.src;
-      const pos = audio.currentTime || 0;
-      // Save exact position
-      localStorage.setItem(LS_POS_KEY, String(Math.floor(pos)));
-      // Cache the live stream URL for quick restore (YouTube URLs are valid for hours)
-      if (src && !audio.paused && (src.includes('youtube') || src.includes('googlevideo') || src.includes('localhost'))) {
-        saveStreamCache(src, pos);
-      }
-    };
-    window.addEventListener('beforeunload', onUnload);
-    return () => window.removeEventListener('beforeunload', onUnload);
-  }, [audioRef, currentTrack]);
+    if (didRestore.current) return;
+    didRestore.current = true;
 
-  // ── Auto-resume on mount: use cached stream or re-resolve ────
-  const didAutoResume = useRef(false);
-  useEffect(() => {
-    if (didAutoResume.current) return;
-    const saved = loadLastTrack();
-    if (!saved) return;
-    didAutoResume.current = true;
+    // PlaybackEngine.restoreSession() reads from SessionPersistence, populates
+    // the Zustand store, and returns the restored song (no autoplay).
+    const restoredSong = playbackEngine.restoreSession();
 
-    const streamCache = loadStreamCache();
-
-    // ★ FAST PATH: we have a fresh cached stream URL — skip re-resolution entirely
-    if (streamCache?.url) {
-      localStorage.removeItem(LS_STREAM_KEY); // consume it
-      const cachedPos = streamCache.position || 0;
-      const fullTrack = {
-        ...saved,
-        previewUrl:  streamCache.url,
-        isFull:      true,
-        ytResolved:  true,
-        sourceType:  saved.sourceType || 'itunes',
-      };
-      setCurrentTrackRaw(fullTrack);
-      // Wait for audio to be ready, then seek + play
-      const audio = audioRef.current;
-      const onCanPlay = () => {
-        audio.removeEventListener('canplay', onCanPlay);
-        if (cachedPos > 4) {
-          try { audio.currentTime = cachedPos; } catch (_) {}
-        }
-        audio.play().catch(e => console.warn('[auto-resume]', e.message));
-      };
-      audio.addEventListener('canplay', onCanPlay);
-      return;
+    if (restoredSong) {
+      // Set local currentTrack to show the restored song in NowPlaying / PlayerBar
+      // without triggering playback.
+      setCurrentTrackRaw(restoredSong);
     }
-
-    // Stable URL tracks (Audius / local): restore + seek
-    if (saved.previewUrl && (saved.sourceType === 'audius' || saved.sourceType === 'local')) {
-      const savedPos = loadLastPosition();
-      if (savedPos > 4) {
-        const onCanPlay = () => {
-          audioRef.current?.removeEventListener('canplay', onCanPlay);
-          try { audioRef.current.currentTime = savedPos; } catch (_) {}
-        };
-        audioRef.current?.addEventListener('canplay', onCanPlay);
-      }
-      handlePlay(saved);
-      return;
-    }
-
-    // iTunes / YouTube: resolve fresh stream then play
-    handlePlay(saved);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);  // Intentionally run once on mount only
+  }, []); // Run once on mount only
 
-  // ── Toggle favorite (API + local state sync) ─────────────────
-  /**
-   * Toggles the liked state for a track.
-   * On like (PUT): resolves the full track object and sends it to the server
-   *   so a snapshot is stored in likedSongs[] for display.
-   * On unlike (DELETE): removes from both favorites[] and likedSongs[].
-   * Both favorites (ID array) and likedSongs (snapshots) are synced from
-   * the server response — single source of truth, no stale state.
-   */
+  // ── Toggle favorite (API + local state sync) ─────────────────────────────────
   const toggleFavorite = useCallback(async (id) => {
     const isFav = favorites.includes(id);
-    // Resolve the full track object to send as snapshot on like
     const track = playableTracks.find(t => t.id === id) ||
                   (currentTrack?.id === id ? currentTrack : null);
     try {
       const data = await api.toggleFavorite(id, isFav, track);
       setFavorites(data.favorites || []);
-      // Sync likedSongs snapshots from server response
       if (data.likedSongs !== undefined) {
         setLikedSongs(data.likedSongs);
       }
@@ -425,11 +268,12 @@ export function PlayerProvider({ children }) {
     }
   }, [favorites, setFavorites, setLikedSongs, playableTracks, currentTrack]);
 
-  // ── Derived convenience ──────────────────────────────────────
-  const isFav          = favorites.includes(currentTrack?.id);
+  // ── Derived convenience ───────────────────────────────────────────────────────
+  const isFav           = favorites.includes(currentTrack?.id);
   const displayElapsed  = elapsed  || 0;
   const displayDuration = duration || currentTrack?.duration || 0;
 
+  // ── Context value — identical shape to Phase 1 ───────────────────────────────
   const value = {
     // Track state
     currentTrack,

@@ -59,3 +59,61 @@ export const coverBg = (t) => {
   if (t.artworkUrl) return `url(${artProxy(t.artworkUrl)}) center/cover no-repeat`;
   return `linear-gradient(135deg, ${t.color?.[0] || '#1db954'}, ${t.color?.[1] || '#191414'})`;
 };
+
+
+// ─── Audio Engine utilities ────────────────────────────────────
+// The functions below are used by the AudioEngine layer introduced
+// as part of the Core Audio Architecture. They are intentionally
+// pure (no side-effects) so they can be freely imported anywhere.
+
+/**
+ * Clamp a number to [min, max].
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @returns {number}
+ */
+export const clamp = (value, min, max) =>
+  Math.max(min, Math.min(max, value));
+
+/**
+ * Safely parse a value as a float.
+ * Returns `fallback` if the result is NaN or not finite.
+ * @param {*}      val
+ * @param {number} fallback
+ * @returns {number}
+ */
+export const safeParseFloat = (val, fallback = 0) => {
+  const n = parseFloat(val);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/**
+ * Returns true if the given string looks like a usable audio URL.
+ * This is a lightweight heuristic — it does NOT verify that the URL
+ * is reachable or that the server returns valid audio data.
+ * @param {string|*} src
+ * @returns {boolean}
+ */
+export const isValidAudioSrc = (src) => {
+  if (!src || typeof src !== 'string') return false;
+  if (src.startsWith('/api/'))          return true; // Relative API paths are always valid
+  try {
+    const { protocol } = new URL(src);
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'blob:';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Convert elapsed seconds and total duration into a 0–100 progress percentage.
+ * Returns 0 if duration is zero or invalid.
+ * @param {number} elapsed  - Current position in seconds
+ * @param {number} duration - Total duration in seconds
+ * @returns {number} Progress percentage (0–100)
+ */
+export const secondsToProgress = (elapsed, duration) => {
+  if (!duration || !Number.isFinite(duration) || duration <= 0) return 0;
+  return clamp((elapsed / duration) * 100, 0, 100);
+};
