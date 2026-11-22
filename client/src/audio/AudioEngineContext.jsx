@@ -14,7 +14,7 @@ export const AudioEngineContext = createContext(null);
 export function AudioEngineProvider({ children }) {
   const [dspSettings, setDspSettings] = useState(() => audioEngine.dspSettings);
   const [eqSettings,  setEqSettings]  = useState(() => audioEngine.eqSettings);
-  const [customPresets, setCustomPresets] = useState(() => audioEngine.customEqPresets);
+  const [customPresets, setCustomPresets] = useState(() => Array.isArray(audioEngine.customEqPresets) ? audioEngine.customEqPresets : []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab,   setActiveTab]   = useState('engine'); // engine | equalizer | spatial | devices | advanced | quality | validation
 
@@ -23,7 +23,7 @@ export function AudioEngineProvider({ children }) {
     const unsubscribe = audioEngine.subscribe(({ dsp, eq }) => {
       setDspSettings({ ...dsp });
       setEqSettings({ ...eq });
-      setCustomPresets([...audioEngine.customEqPresets]);
+      setCustomPresets(Array.isArray(audioEngine.customEqPresets) ? [...audioEngine.customEqPresets] : []);
     });
     return unsubscribe;
   }, []);

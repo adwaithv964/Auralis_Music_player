@@ -104,12 +104,21 @@ export class AudioGraph {
     // 1. Input Gain Stage
     const inDb = dspSettings.inputGain || 0;
     const inLin = Math.pow(10, inDb / 20);
-    this.inputGainNode.gain.setTargetAtTime(inLin, t, rampTime);
+    if (t === 0) {
+      this.inputGainNode.gain.setValueAtTime(inLin, 0);
+    } else {
+      this.inputGainNode.gain.setTargetAtTime(inLin, t, rampTime);
+    }
 
     // 2. Engine Bypass Control
     const engineOn = !!dspSettings.engineEnabled;
-    this.engineWetGain.gain.setTargetAtTime(engineOn ? 1.0 : 0.0, t, rampTime);
-    this.engineDryGain.gain.setTargetAtTime(engineOn ? 0.0 : 1.0, t, rampTime);
+    if (t === 0) {
+      this.engineWetGain.gain.setValueAtTime(engineOn ? 1.0 : 0.0, 0);
+      this.engineDryGain.gain.setValueAtTime(engineOn ? 0.0 : 1.0, 0);
+    } else {
+      this.engineWetGain.gain.setTargetAtTime(engineOn ? 1.0 : 0.0, t, rampTime);
+      this.engineDryGain.gain.setTargetAtTime(engineOn ? 0.0 : 1.0, t, rampTime);
+    }
 
     // 3. Resolve Intensity Multiplier
     const intensityKey = dspSettings.intensity || 'balanced';

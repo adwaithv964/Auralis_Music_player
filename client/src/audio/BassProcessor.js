@@ -46,11 +46,11 @@ export class BassProcessor {
     this.deepBassFilter.Q.value = 1.1;
     this.deepBassFilter.gain.value = 0;
 
-    // 4. Punchy Mid-Bass Focus (focus: 140 Hz)
+    // 4. Punchy Mid-Bass Focus (focus: 120 Hz - punchy kick drum transient)
     this.midPunchFilter = audioCtx.createBiquadFilter();
     this.midPunchFilter.type = 'peaking';
-    this.midPunchFilter.frequency.value = 140;
-    this.midPunchFilter.Q.value = 1.4;
+    this.midPunchFilter.frequency.value = 120;
+    this.midPunchFilter.Q.value = 1.35;
     this.midPunchFilter.gain.value = 0;
 
     // 5. Transparent Bass Dynamic Headroom Guard (prevents clipping without choking transients)
@@ -140,22 +140,22 @@ export class BassProcessor {
     // Sub-Sonic filter
     this.subSonicFilter.frequency.setTargetAtTime(cutoff, t, rampTime);
 
-    // Deep Bass & Sub-Bass (scaled safely to prevent clipping before limiting)
-    const clampedDeep = Math.max(-6, Math.min(10, deepGain * intensity));
-    const clampedPunch = Math.max(-6, Math.min(9, punchGain * intensity));
+    // Deep Bass & Sub-Bass: Sculpted so sub-bass provides visceral foundation without muddiness
+    const clampedDeep = Math.max(-6, Math.min(8, deepGain * intensity));
+    const clampedPunch = Math.max(-6, Math.min(8, punchGain * intensity));
 
-    this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.75, t, rampTime);
-    this.deepBassFilter.gain.setTargetAtTime(clampedDeep, t, rampTime);
-    this.midPunchFilter.gain.setTargetAtTime(clampedPunch, t, rampTime);
+    this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.45, t, rampTime);
+    this.deepBassFilter.gain.setTargetAtTime(clampedDeep * 0.65, t, rampTime);
+    this.midPunchFilter.gain.setTargetAtTime(clampedPunch * 0.75, t, rampTime);
 
     // Transparent peak protection only for high outputs
     const compThresh = Math.max(-4.5, -2.5 - (clampedDeep * 0.15));
     this.bassCompressor.threshold.setTargetAtTime(compThresh, t, rampTime);
     this.bassCompressor.ratio.setTargetAtTime(1.15 + (settings.bassCompression ? 0.15 : 0.0), t, rampTime);
 
-    // Psychoacoustic Bass Generator
+    // Psychoacoustic Bass Generator (Missing Fundamental)
     const useHarmonics = settings.psychoacousticBass && (deviceOffsets.psychoacousticBass !== false);
-    const targetHarmonicGain = useHarmonics ? (0.18 + texture * 0.14) * intensityMult : 0.0;
+    const targetHarmonicGain = useHarmonics ? Math.min(0.24, (0.14 + texture * 0.10) * Math.min(1.2, intensityMult)) : 0.0;
     this.harmonicGain.gain.setTargetAtTime(targetHarmonicGain, t, rampTime);
   }
 }

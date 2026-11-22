@@ -23,53 +23,51 @@ export class OutputLimiter {
     this.headroomGain = audioCtx.createGain();
     this.headroomGain.gain.value = 1.0; // 0.0 dB (no artificial gain reduction)
 
-    // 2. Anti-Aliased Soft Knee WaveShaper
-    this.waveShaper = audioCtx.createWaveShaper();
-    this.waveShaper.curve = this._generateLimiterCurve(4096, 0.944); // 0.944 = -0.5 dBFS ceiling
-    this.waveShaper.oversample = '4x'; // 4x oversampling for pristine anti-aliasing
-
-    // 3. Ultra-Fast Safety Dynamics Compressor (catches only genuine overs above -0.5 dBFS)
+    // 2. Ultra-Fast Safety Dynamics Compressor (catches overs > -1.0 dBFS)
     this.safetyCompressor = audioCtx.createDynamicsCompressor();
-    this.safetyCompressor.threshold.value = -0.5; // -0.5 dBFS (transparent safety ceiling)
-    this.safetyCompressor.knee.value = 3.0;
-    this.safetyCompressor.ratio.value = 12.0;
-    this.safetyCompressor.attack.value = 0.002;   // 2ms transparent attack
-    this.safetyCompressor.release.value = 0.040;  // 40ms fast recovery
+    this.safetyCompressor.threshold.value = -1.0; // -1.0 dBFS safety threshold
+    this.safetyCompressor.knee.value = 2.0;
+    this.safetyCompressor.ratio.value = 20.0;
+    this.safetyCompressor.attack.value = 0.001;   // 1ms ultra-fast attack
+    this.safetyCompressor.release.value = 0.035;  // 35ms fast recovery
+
+    // 3. Anti-Aliased Soft Knee WaveShaper Brickwall Ceiling (-1.0 dBFS / 0.891)
+    this.waveShaper = audioCtx.createWaveShaper();
+    this.waveShaper.curve = this._generateLimiterCurve(4096, 0.891);
+    this.waveShaper.oversample = '4x'; // 4x oversampling for pristine anti-aliasing
 
     // 4. Output Master Ceiling Gain
     this.ceilingGain = audioCtx.createGain();
     this.ceilingGain.gain.value = 1.0;
 
-    // Connect Limiter Stage
+    // Connect Limiter Stage in series
     this.inputNode.connect(this.headroomGain);
-    this.headroomGain.connect(this.waveShaper);
-    this.waveShaper.connect(this.safetyCompressor);
-    this.safetyCompressor.connect(this.ceilingGain);
+    this.headroomGain.connect(this.safetyCompressor);
+    this.safetyCompressor.connect(this.waveShaper);
+    this.waveShaper.connect(this.ceilingGain);
     this.ceilingGain.connect(this.outputNode);
   }
 
   /**
    * Generates a smooth, continuous soft-knee saturation curve:
-   * Below knee (0.75 / -2.5 dBFS): linear unity gain y = x
-   * Above knee: smooth tanh asymptotic curve approaching ceiling c (-1.0 dBFS)
+   * Below knee: linear unity gain y = x
+   * Above knee: smooth tanh asymptotic curve strictly bounded to ceiling
    */
   _generateLimiterCurve(samples, ceiling = 0.891) {
     const curve = new Float32Array(samples);
-    const knee = ceiling * 0.82; // Start soft saturation at ~82% of ceiling
+    const knee = ceiling * 0.85;
 
     for (let i = 0; i < samples; ++i) {
-      const x = (i * 2) / samples - 1;
+      const x = (i * 2) / (samples - 1) - 1;
       const absX = Math.abs(x);
 
       if (absX <= knee) {
         curve[i] = x;
       } else {
         const sign = x >= 0 ? 1 : -1;
-        // Smooth tanh transition to ceiling
         const excess = absX - knee;
-        const maxExcess = 1.0 - knee;
         const compressed = Math.tanh(excess / (ceiling - knee)) * (ceiling - knee);
-        curve[i] = sign * (knee + compressed);
+        curve[i] = sign * Math.min(ceiling, knee + compressed);
       }
     }
     return curve;
@@ -83,7 +81,12 @@ export class OutputLimiter {
     const linearCeiling = Math.pow(10, ceilingDb / 20);
 
     // Update safety compressor threshold to match ceiling
-    this.safetyCompressor.threshold.setTargetAtTime(Math.min(-0.5, ceilingDb), t, rampTime);
-    this.ceilingGain.gain.setTargetAtTime(Math.min(1.0, linearCeiling * 1.1), t, rampTime);
+    if (t === 0) {
+      this.safetyCompressor.threshold.setValueAtTime(ceilingDb, 0);
+      this.ceilingGain.gain.setValueAtTime(1.0, 0);
+    } else {
+      this.safetyCompressor.threshold.setTargetAtTime(ceilingDb, t, rampTime);
+      this.ceilingGain.gain.setTargetAtTime(1.0, t, rampTime);
+    }
   }
 }

@@ -33,6 +33,12 @@ class AudioEngineController {
     this.eqSettings  = this._loadStorage(STORAGE_KEYS.EQ_SETTINGS,  DEFAULT_EQ_SETTINGS);
     this.customEqPresets = this._loadStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, []);
 
+    // Ensure customEqPresets is strictly an Array (heals any corrupted object in localStorage)
+    if (!Array.isArray(this.customEqPresets)) {
+      this.customEqPresets = [];
+      this._saveStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, []);
+    }
+
     // Ensure loudnessMatch is disabled by default so volume is full and unattenuated
     if (this.dspSettings.loudnessMatch) {
       this.dspSettings.loudnessMatch = false;
@@ -46,9 +52,15 @@ class AudioEngineController {
   _loadStorage(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
-      if (raw) return { ...fallback, ...JSON.parse(raw) };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(fallback)) {
+          return Array.isArray(parsed) ? parsed : [...fallback];
+        }
+        return { ...fallback, ...parsed };
+      }
     } catch (_) {}
-    return { ...fallback };
+    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
   }
 
   _saveStorage(key, data) {

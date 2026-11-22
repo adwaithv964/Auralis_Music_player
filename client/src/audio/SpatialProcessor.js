@@ -175,24 +175,24 @@ export class SpatialProcessor {
     // Mode-specific parameter mappings
     switch (mode) {
       case 'stereo':
-        // Balanced 3D stereo enhancement: keeps center punchy while opening stereo stage
-        baseWidth = 1.15;
-        crossfeedLevel = 0.08;
-        reflectionLevel = 0.12;
+        // Pure stereo bypass
+        baseWidth = 1.0;
+        crossfeedLevel = 0.0;
+        reflectionLevel = 0.0;
         break;
 
       case 'wide':
-        // Dolby-style wide soundstage: expansive 3D panorama with mono-centered bass
-        baseWidth = Math.max(1.20, (settings.stereoWidth || 1.30) * intensityMult);
-        crossfeedLevel = 0.06;
-        reflectionLevel = 0.18;
+        // Dolby-style wide soundstage: expansive 3D panorama with mono-centered bass and positive phase correlation
+        baseWidth = Math.min(1.22, (settings.stereoWidth || 1.25) * 0.95);
+        crossfeedLevel = 0.05;
+        reflectionLevel = 0.0; // Reflections off in wide mode to preserve strict mono compatibility
         break;
 
       case 'headphone_spatial':
-        // Out-of-head 3D holographic immersion for headphones (Dolby feel)
-        baseWidth = Math.max(1.25, (settings.stereoWidth || 1.35) * intensityMult);
-        crossfeedLevel = Math.max(0.12, (settings.crossfeedAmount || 0.20) * intensityMult);
-        reflectionLevel = Math.max(0.20, (settings.spatialDepth || 0.28) * intensityMult);
+        // Out-of-head 3D holographic immersion for headphones
+        baseWidth = Math.min(1.25, (settings.stereoWidth || 1.28) * 0.95);
+        crossfeedLevel = Math.min(0.25, (settings.crossfeedAmount || 0.20));
+        reflectionLevel = Math.min(0.14, (settings.spatialDepth || 0.18));
         break;
 
       case 'crossfeed':
@@ -223,7 +223,7 @@ export class SpatialProcessor {
     }
 
     // Apply M/S Width: Side gain expands stereo field, Mid gain is preserved at 1.0 (vocal/kick punch)
-    const sideGain = Math.max(0.0, Math.min(1.8, baseWidth));
+    const sideGain = Math.max(0.0, Math.min(1.25, baseWidth));
     const midGain  = 1.0; // Keep lead vocal, snare, and kick drum 100% solid & uncompromised
 
     this.midWidthGain.gain.setTargetAtTime(midGain, t, rampTime);

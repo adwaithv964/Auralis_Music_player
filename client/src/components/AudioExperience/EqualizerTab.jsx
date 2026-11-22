@@ -22,8 +22,9 @@ export function EqualizerTab() {
   const [customName, setCustomName] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
 
-  const bands = eqSettings.bands || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const allPresets = [...EQ_PRESETS, ...customPresets];
+  const bands = Array.isArray(eqSettings?.bands) ? eqSettings.bands : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const safeCustomPresets = Array.isArray(customPresets) ? customPresets : [];
+  const allPresets = [...EQ_PRESETS, ...safeCustomPresets];
 
   const handleSave = () => {
     if (!customName.trim()) return;
