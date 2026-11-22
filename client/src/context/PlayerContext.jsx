@@ -186,8 +186,8 @@ export function PlayerProvider({ children }) {
       return;
     }
 
-    // Audius / local with stable URL → direct play
-    if ((track.sourceType === 'audius' || track.sourceType === 'local') && track.previewUrl) {
+    // Audius / local / saavn with stable direct CDN URL → direct play
+    if ((track.sourceType === 'audius' || track.sourceType === 'local' || track.sourceType === 'saavn') && track.previewUrl && track.previewUrl.startsWith('http')) {
       setCurrentTrack(track);
       setTimeout(() => play(), 30);
       pushHistory(track);

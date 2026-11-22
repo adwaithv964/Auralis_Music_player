@@ -400,7 +400,7 @@ async function searchSaavnTracks(query, language = 'malayalam') {
   if (!query) return [];
   try {
     const resp = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&n=20&p=1&_format=json&_marker=0`,
+      `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&n=20&p=1&_format=json&_marker=0&cc=in&api_version=4`,
       {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -415,13 +415,21 @@ async function searchSaavnTracks(query, language = 'malayalam') {
     const data = parseJioJson(text);
     return (data?.results || []).map(item => {
       const art = item.image?.replace('150x150', '500x500') || '';
-      const streamUrl = item.encrypted_media_url ? decryptSaavnUrl(item.encrypted_media_url) : '';
+      const mi = item.more_info || {};
+      const enc = mi.encrypted_media_url || item.encrypted_media_url || '';
+      const streamUrl = enc ? decryptSaavnUrl(enc) : '';
+      const title = decodeHtmlEntities(item.title || item.song) || '';
+      const artist = decodeHtmlEntities(
+        mi.artistMap?.primary_artists?.map(a => a.name).join(', ') ||
+        item.primary_artists || item.singers || 'Unknown'
+      );
+      const album = decodeHtmlEntities(mi.album || item.album) || '';
       return {
         id: `saavn-${item.id}`,
-        title: decodeHtmlEntities(item.song) || '',
-        artist: decodeHtmlEntities(item.primary_artists || item.singers || 'Unknown'),
-        album: decodeHtmlEntities(item.album) || '',
-        duration: Number(item.duration) || 180,
+        title,
+        artist,
+        album,
+        duration: Number(item.duration || mi.duration) || 180,
         genre: item.language || 'Music',
         language: item.language || language,
         isFull: !!streamUrl,
@@ -429,7 +437,7 @@ async function searchSaavnTracks(query, language = 'malayalam') {
         previewUrl: streamUrl,
         streamUrl: streamUrl,
         artworkUrl: art,
-        lyrics: ['Full 320kbps track via JioSaavn', item.primary_artists, item.album],
+        lyrics: ['Full 320kbps track via JioSaavn', artist, album],
       };
     });
   } catch (err) {
@@ -442,7 +450,7 @@ async function searchSaavnTracks(query, language = 'malayalam') {
 
 /**
  * Resolves a stream URL for the given track info by:
- * 1. Searching JioSaavn with multi-candidate queries.
+ * 1. Searching JioSaavn with multi-candidate queries (enforcing cc=in & api_version=4).
  * 2. Strict matching every candidate using `verifyTrackMatch`.
  * 3. If verified match found, returns decrypted 320kbps MP4 URL.
  * 4. If JioSaavn has no verified match, falls back to `searchYouTubeVerified`.
@@ -465,10 +473,10 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
 
   for (const q of queries) {
     try {
-      let ids = [];
+      let results = [];
       try {
         const resp = await fetch(
-          `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&N=5&p=1&_format=json&_marker=0`,
+          `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&n=10&p=1&_format=json&_marker=0&cc=in&api_version=4`,
           {
             headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
             signal: AbortSignal.timeout(6000),
@@ -477,12 +485,12 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
         if (resp.ok) {
           const text = await resp.text();
           const data = parseJioJson(text);
-          ids = (data?.results || []).map(r => r.id).filter(Boolean).slice(0, 5);
+          results = data?.results || [];
         }
       } catch (_) {}
 
-      // Fallback: autocomplete if primary search returned no IDs
-      if (!ids.length) {
+      // Fallback: autocomplete if primary search returned no results
+      if (!results.length) {
         try {
           const autoResp = await fetch(
             `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(q)}&_format=json&_marker=0&ctx=wap6dot0`,
@@ -493,34 +501,37 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
           );
           if (autoResp.ok) {
             const autoData = parseJioJson(await autoResp.text());
-            ids = (autoData?.songs?.data || []).map(s => s.id).filter(Boolean).slice(0, 5);
+            const autoIds = (autoData?.songs?.data || []).map(s => s.id).filter(Boolean).slice(0, 5);
+            if (autoIds.length) {
+              const detResp = await fetch(
+                `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&api_version=4&pids=${autoIds.join(',')}`,
+                {
+                  headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
+                  signal: AbortSignal.timeout(6000),
+                }
+              );
+              if (detResp.ok) {
+                const detData = parseJioJson(await detResp.text());
+                results = autoIds.map(id => detData?.[id]).filter(Boolean);
+              }
+            }
           }
         } catch (_) {}
       }
 
-      if (!ids.length) continue;
+      if (!results.length) continue;
 
-      const detResp = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&api_version=4&pids=${ids.join(',')}`,
-        {
-          headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
-          signal: AbortSignal.timeout(6000),
-        }
-      );
-      const detData = parseJioJson(await detResp.text());
-
-      for (const id of ids) {
-        const sd = detData?.[id];
-        if (!sd) continue;
-
-        let mi = sd.more_info;
+      for (const item of results) {
+        let mi = item.more_info;
         if (typeof mi === 'string') {
           try { mi = JSON.parse(mi); } catch (_) { mi = {}; }
+        } else if (!mi) {
+          mi = {};
         }
 
-        const candidateSong = decodeHtmlEntities(sd.title || sd.song || '');
-        const candidateArtist = decodeHtmlEntities(mi?.artistMap?.primary_artists?.map(a => a.name).join(', ') || sd.primary_artists || sd.subtitle || '');
-        const candidateAlbum = decodeHtmlEntities(mi?.album || sd.album || '');
+        const candidateSong = decodeHtmlEntities(item.title || item.song || '');
+        const candidateArtist = decodeHtmlEntities(mi.artistMap?.primary_artists?.map(a => a.name).join(', ') || item.primary_artists || item.subtitle || '');
+        const candidateAlbum = decodeHtmlEntities(mi.album || item.album || '');
 
         // Strict verification
         const isMatch = verifyTrackMatch(targetTitle, targetArtist, targetAlbum, {
@@ -535,7 +546,7 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
         }
 
         // Passed match!
-        const enc = mi?.encrypted_media_url || sd.encrypted_media_url;
+        const enc = mi.encrypted_media_url || item.encrypted_media_url;
         if (enc) {
           const url = decryptSaavnUrl(enc);
           if (url.startsWith('http')) {
