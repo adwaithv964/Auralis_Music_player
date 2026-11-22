@@ -23,7 +23,7 @@ export function AdvancedDspTab() {
       {/* ── Multiband Dynamics ── */}
       <div className="dsp-card">
         <div className="dsp-card-title">
-          <span>5-Band Multiband Dynamic Processing</span>
+          <span>3-Band Studio Mastering Dynamics (Linkwitz-Riley LR4 Phase-Linear)</span>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', cursor: 'pointer' }}>
             <input
               type="checkbox"

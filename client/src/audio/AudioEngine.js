@@ -137,6 +137,49 @@ class AudioEngineController {
   }
 
   /**
+   * Smooth micro-fade out before pausing to eliminate transient DC clicks/pops.
+   */
+  fadeToPause(onComplete) {
+    if (!this.graph || !this.ctx || this.ctx.state !== 'running') {
+      if (onComplete) onComplete();
+      return;
+    }
+    const t = this.ctx.currentTime;
+    try {
+      this.graph.inputGainNode.gain.cancelScheduledValues(t);
+      this.graph.inputGainNode.gain.setValueAtTime(this.graph.inputGainNode.gain.value, t);
+      this.graph.inputGainNode.gain.linearRampToValueAtTime(0.0001, t + 0.020);
+    } catch (_) {}
+
+    setTimeout(() => {
+      if (onComplete) onComplete();
+      if (this.ctx && this.graph) {
+        try {
+          const nextT = this.ctx.currentTime;
+          this.graph.inputGainNode.gain.setValueAtTime(1.0, nextT);
+        } catch (_) {}
+      }
+    }, 25);
+  }
+
+  /**
+   * Smooth micro-fade in on playback start to prevent abrupt audio transients.
+   */
+  fadeToPlay(playFn) {
+    if (!this.graph || !this.ctx) {
+      if (playFn) playFn();
+      return;
+    }
+    const t = this.ctx.currentTime;
+    try {
+      this.graph.inputGainNode.gain.cancelScheduledValues(t);
+      this.graph.inputGainNode.gain.setValueAtTime(0.0001, t);
+      this.graph.inputGainNode.gain.linearRampToValueAtTime(1.0, t + 0.025);
+    } catch (_) {}
+    if (playFn) playFn();
+  }
+
+  /**
    * Updates DSP settings and recalculates graph parameters.
    */
   updateDspSettings(updater) {

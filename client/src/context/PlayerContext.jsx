@@ -149,7 +149,7 @@ export function PlayerProvider({ children }) {
   }, [isPlaying, play, pause]);
 
   // ── Core play handler ────────────────────────────────────────
-  const handlePlay = useCallback(async (track) => {
+  const handlePlay = useCallback(async (track, { autoAdvance = false } = {}) => {
     if (!trackHasAudio(track)) return;
 
     /** Push to in-memory history immediately (optimistic) and save to DB */
@@ -168,21 +168,62 @@ export function PlayerProvider({ children }) {
       api.saveHistory(t); // fire-and-forget, never throws
     };
 
+    /** Spotify-style next track background preloader */
+    const triggerNextPreload = (currentId) => {
+      let next = null;
+      if (queue.length > 0) {
+        next = queue[0];
+      } else {
+        const source = activeQueue.length > 0 ? activeQueue : playableTracks;
+        if (source && source.length) {
+          const idx = source.findIndex(t => t.id === currentId);
+          if (idx !== -1 && idx + 1 < source.length) {
+            next = source[idx + 1];
+          }
+        }
+      }
+
+      if (!next || next.previewUrl || resolvedCache.current.has(next.id)) return;
+
+      fetch(
+        `/api/saavn/stream?title=${encodeURIComponent(next.title)}&artist=${encodeURIComponent(next.artist || '')}&album=${encodeURIComponent(next.album || '')}`
+      )
+        .then(res => (res.ok ? res.json() : null))
+        .then(saavn => {
+          if (saavn?.streamUrl) {
+            const preloaded = {
+              ...next,
+              previewUrl: saavn.streamUrl,
+              isFull: true,
+              ytResolved: true,
+              sourceType: next.sourceType || 'saavn',
+              contentType: saavn.contentType || 'audio/mp4',
+              lyrics: ['Full track via Verified Stream', next.artist, next.album],
+            };
+            resolvedCache.current.set(next.id, preloaded);
+            console.log(`[Spotify Preload OK] "${next.title}" cached for zero-latency gapless transition`);
+          }
+        })
+        .catch(() => {});
+    };
+
     // Already resolved → instant play from cache
     if (resolvedCache.current.has(track.id)) {
       const resolved = resolvedCache.current.get(track.id);
       setCurrentTrack(resolved);
       setTimeout(() => play(), 30);
       pushHistory(resolved);
+      triggerNextPreload(resolved.id);
       return;
     }
 
-    // Has a working previewUrl AND it's not an expired iTunes URL →  direct play
+    // Has a working previewUrl AND it's not an expired iTunes URL → direct play
     const hasWorkingUrl = !!(track.previewUrl) && track.sourceType !== 'itunes';
     if (hasWorkingUrl) {
       setCurrentTrack(track);
       setTimeout(() => play(), 30);
       pushHistory(track);
+      triggerNextPreload(track.id);
       return;
     }
 
@@ -191,6 +232,7 @@ export function PlayerProvider({ children }) {
       setCurrentTrack(track);
       setTimeout(() => play(), 30);
       pushHistory(track);
+      triggerNextPreload(track.id);
       return;
     }
 
@@ -205,10 +247,13 @@ export function PlayerProvider({ children }) {
       );
 
       if (res.status === 404) {
-        // Track unavailable — show it as unavailable instead of silent failure or wrong audio
         console.warn('[Audio Stream] No verified track found:', track.title);
         setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
         setResolvingId(null);
+        if (autoAdvance) {
+          console.info('[Continuous Playback] Auto-advancing past unavailable track in 600ms...');
+          setTimeout(() => handleNext(true), 600);
+        }
         return;
       }
 
@@ -229,14 +274,19 @@ export function PlayerProvider({ children }) {
         setCurrentTrack(fullTrack);
         setTimeout(() => play(), 80);
         pushHistory(fullTrack);
+        triggerNextPreload(fullTrack.id);
       }
     } catch (e) {
       console.warn('[Audio resolve failed]', e.message);
       setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
+      if (autoAdvance) {
+        console.info('[Continuous Playback] Auto-advancing past failed track in 600ms...');
+        setTimeout(() => handleNext(true), 600);
+      }
     } finally {
       setResolvingId(null);
     }
-  }, [play, pause, setPlayHistory]);
+  }, [play, pause, setPlayHistory, queue, activeQueue, playableTracks]);
 
   // ── Set active queue and start playback ──────────────────────
   /**
@@ -260,12 +310,12 @@ export function PlayerProvider({ children }) {
   }, [activeQueue, playableTracks, currentTrack, handlePlay]);
 
   // ── Next track (drains manual queue first, then respects shuffle + repeat) ─
-  const handleNext = useCallback(() => {
+  const handleNext = useCallback((isAuto = false) => {
     // Drain the manual up-next queue first
     if (queue.length > 0) {
       const [next, ...rest] = queue;
       setQueue(rest);
-      handlePlay(next);
+      handlePlay(next, { autoAdvance: isAuto });
       return;
     }
 
@@ -276,13 +326,13 @@ export function PlayerProvider({ children }) {
     // Repeat One — stay on same track
     if (repeat) {
       const idx = source.findIndex(t => t.id === currentTrack?.id);
-      if (idx !== -1) handlePlay(source[idx]);
+      if (idx !== -1) handlePlay(source[idx], { autoAdvance: isAuto });
       return;
     }
 
     // Shuffle — random within active source
     if (shuffle) {
-      handlePlay(source[Math.floor(Math.random() * source.length)]);
+      handlePlay(source[Math.floor(Math.random() * source.length)], { autoAdvance: isAuto });
       return;
     }
 
@@ -296,7 +346,7 @@ export function PlayerProvider({ children }) {
       return;
     }
 
-    handlePlay(source[nextIdx]);
+    handlePlay(source[nextIdx], { autoAdvance: isAuto });
   }, [activeQueue, playableTracks, currentTrack, shuffle, repeat, handlePlay, queue, pause]);
 
   /** Add a track to the end of the manual queue */
@@ -311,7 +361,7 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onEnded = () => handleNext();
+    const onEnded = () => handleNext(true);
     audio.addEventListener('ended', onEnded);
     return () => audio.removeEventListener('ended', onEnded);
   }, [audioRef, handleNext]);

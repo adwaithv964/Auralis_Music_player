@@ -153,27 +153,33 @@ export function useAudioEngine(currentTrack, preferences) {
     const audio = audioRef.current;
     if (!audio.src) return;
     audioEngine.resume();
+    const doPlay = () => audio.play().catch(e => console.warn('[play]', e.message));
     // If still loading, wait for canplay then trigger
     if (audio.readyState < 2) {
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);
-        audio.play().catch(e => console.warn('[play after load]', e.message));
+        audioEngine.fadeToPlay(doPlay);
       };
       audio.addEventListener('canplay', onReady);
       return;
     }
-    audio.play().catch(e => console.warn('[play]', e.message));
+    audioEngine.fadeToPlay(doPlay);
   }, []);
 
   const pause = useCallback(() => {
-    audioRef.current.pause();
+    audioEngine.fadeToPause(() => {
+      audioRef.current.pause();
+    });
   }, []);
 
   const seek = useCallback((percentage) => {
     const audio = audioRef.current;
     const dur   = audio.duration;
     if (dur && !isNaN(dur) && isFinite(dur)) {
-      audio.currentTime = Math.max(0, Math.min(dur, (percentage / 100) * dur));
+      audioEngine.fadeToPause(() => {
+        audio.currentTime = Math.max(0, Math.min(dur, (percentage / 100) * dur));
+        audioEngine.fadeToPlay();
+      });
     }
   }, []);
 
