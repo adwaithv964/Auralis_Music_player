@@ -90,7 +90,12 @@ export function TrackCard({ track, isActive, isResolving, onPlay, index = 0 }) {
         <p className={`track-card-title${isActive ? ' track-card-title--active' : ''}`}>
           {track.title}
         </p>
-        <p className="track-card-artist">{track.artist}</p>
+        <div className="track-card-sub-row">
+          <p className="track-card-artist">{track.artist}</p>
+          {track.versionInfo?.tier === 1 && (
+            <span className="version-pill-mini version-pill-mini--1">OST</span>
+          )}
+        </div>
       </div>
     </motion.div>
   );

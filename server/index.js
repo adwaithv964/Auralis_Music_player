@@ -38,6 +38,15 @@ const User     = require('./models/User');
 const UserAuth = require('./models/UserAuth');
 const { fetchTrending } = require('./trendingService');
 const { requireAuth }   = require('./middleware/auth');
+const {
+  parseQuery,
+  classifyVersion,
+  scoreCandidate,
+  verifyTrackMatch,
+  searchYouTubeVerified,
+  searchSaavnTracks,
+  resolveVerifiedAudioStream,
+} = require('./searchEngine');
 const jwt        = require('jsonwebtoken');
 const bcrypt     = require('bcryptjs');
 const cookieParser = require('cookie-parser');
@@ -1019,70 +1028,30 @@ app.get('/api/auth/me', requireAuth, wrap(async (req, res) => {
 //  ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
 
 
-// "?"? YouTube: resolve title+artist +' stream URL "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
-// ── Resolve iTunes title+artist → JioSaavn stream URL ─────────────────────
-// YouTube is NOT used here — cloud IPs are blocked by YouTube.
-// JioSaavn is free, fast, 320kbps MP4, works from all server IPs.
+// ── Resolve title+artist+album → verified stream URL ─────────────────────
 app.get("/api/youtube/resolve", wrap(async (req, res) => {
-  const { title, artist } = req.query;
+  const { title, artist, album } = req.query;
   if (!title) return res.status(400).json({ error: "title required" });
 
-  // Build progressively broader queries: most specific first
-  const queries = [
-    artist ? `${title} ${artist}` : null,
-    title,
-    artist ? `${title.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim()} ${artist.split(/[,&]/)[0].trim()}` : null,
-  ].filter(Boolean).filter((q, i, a) => q && q.length > 2 && a.indexOf(q) === i);
-
-  for (const q of queries) {
-    try {
-      const saavn = await saavnSearch(q);
-      console.log(`[Resolve] Saavn OK for "${title}" via "${q}"`);
-      return res.json({ videoId: null, streamUrl: saavn.url, via: "saavn", contentType: saavn.contentType });
-    } catch (e) {
-      console.warn(`[Resolve] Saavn miss for "${q.slice(0, 50)}": ${e.message.slice(0, 60)}`);
-    }
+  const resolved = await resolveVerifiedAudioStream(title, artist, album);
+  if (resolved?.streamUrl) {
+    return res.json(resolved);
   }
 
-  // All Saavn attempts failed — return 404 (client will show "unavailable")
-  return res.status(404).json({ error: "Track not found on JioSaavn. YouTube streaming not supported on this deployment." });
+  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song" });
 }));
 
-// ── Direct JioSaavn lookup by title+artist ──────────────────────────────────
+// ── Direct lookup by title+artist+album with strict verification ────────────
 app.get("/api/saavn/stream", wrap(async (req, res) => {
-  const { title, artist } = req.query;
+  const { title, artist, album } = req.query;
   if (!title) return res.status(400).json({ error: "title required" });
 
-  // saavnSearch already does smart multi-variant stripping internally.
-  // We call it twice: once with just the title (best for Indian music with
-  // "(From Movie)" suffixes), and once with "title artist" for disambiguation.
-  const cleanTitle  = title.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(); // strip (From "Movie")
-  const firstArtist = artist ? artist.split(/[,&]/)[0].trim() : "";
-
-  const attempts = [
-    // 1. Clean title + first artist — most targeted
-    firstArtist ? `${cleanTitle} ${firstArtist}` : null,
-    // 2. Clean title alone — best hit-rate for regional Indian songs
-    cleanTitle,
-    // 3. Full raw title — saavnSearch handles further simplification internally
-    title !== cleanTitle ? title : null,
-    // 4. First 3 words of clean title
-    cleanTitle.split(/\s+/).slice(0, 3).join(" "),
-  ].filter((q, i, a) => q && q.length > 2 && a.indexOf(q) === i);
-
-  let lastErr;
-  for (const q of attempts) {
-    try {
-      console.log(`[Saavn] trying: "${q.slice(0, 60)}"`);
-      const saavn = await saavnSearch(q);
-      console.log(`[Saavn] OK for "${title.slice(0, 40)}" via "${q.slice(0, 40)}"`);
-      return res.json({ streamUrl: saavn.url, contentType: saavn.contentType || "audio/mp4", via: "saavn" });
-    } catch (e) {
-      console.warn(`[Saavn] miss: "${q?.slice(0, 50)}" → ${e.message.slice(0, 60)}`);
-      lastErr = e;
-    }
+  const resolved = await resolveVerifiedAudioStream(title, artist, album);
+  if (resolved?.streamUrl) {
+    return res.json(resolved);
   }
-  return res.status(404).json({ error: "Not found on JioSaavn", detail: lastErr?.message });
+
+  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song" });
 }));
 
 
@@ -1284,9 +1253,33 @@ app.get("/api/external/search", wrap(async (req, res) => {
     ];
   }
 
-  const itunesTracks = term
-    ? await fetchItunes(term, rawLang, limit * 2)
-    : await fetchItunesMultiSeed(seeds, rawLang, limit * 2);
+  let candidates = [];
+  let parsedQuery = null;
+
+  if (term) {
+    parsedQuery = parseQuery(term);
+    const searchTasks = [
+      searchSaavnTracks(term, rawLang),
+      fetchItunes(term, rawLang, limit * 2),
+    ];
+    if (parsedQuery.cleanTitle && parsedQuery.cleanTitle !== term) {
+      searchTasks.push(searchSaavnTracks(parsedQuery.cleanTitle, rawLang));
+      searchTasks.push(fetchItunes(parsedQuery.cleanTitle, rawLang, limit));
+    }
+    if (parsedQuery.movie && parsedQuery.movie !== term) {
+      searchTasks.push(searchSaavnTracks(parsedQuery.movie, rawLang));
+    }
+
+    const settled = await Promise.allSettled(searchTasks);
+    for (const r of settled) {
+      if (r.status === "fulfilled" && Array.isArray(r.value)) {
+        candidates.push(...r.value);
+      }
+    }
+  } else {
+    const itunesTracks = await fetchItunesMultiSeed(seeds, rawLang, limit * 2);
+    candidates.push(...itunesTracks);
+  }
 
   let audiusTracks = [];
   if (rawLang === "english" || rawLang === "all") {
@@ -1294,6 +1287,18 @@ app.get("/api/external/search", wrap(async (req, res) => {
       const genreIdx = page % AUDIUS_GENRES.length;
       audiusTracks   = await fetchAudiusTrending(AUDIUS_GENRES[genreIdx], Math.ceil(limit / 2), page * 10);
     } catch (e) { console.warn("[Audius]", e.message); }
+  }
+  candidates.push(...audiusTracks);
+
+  // Score and rank candidates if query is present
+  if (term && parsedQuery) {
+    candidates = candidates.map(t => scoreCandidate(t, parsedQuery));
+    candidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+  } else {
+    candidates = candidates.map(t => {
+      const v = classifyVersion(t.title, t.album, t.artist);
+      return { ...t, versionInfo: v, isOST: v.tier === 1 };
+    });
   }
 
   const seenId  = new Set();
@@ -1306,12 +1311,13 @@ app.get("/api/external/search", wrap(async (req, res) => {
     seenKey.add(key);
     return true;
   });
+
   // Strip internal _dedupKey before sending to client
-  const tracks = [...dedup(itunesTracks), ...dedup(audiusTracks)]
+  const tracks = dedup(candidates)
     .slice(0, limit * 2)
     .map(({ _dedupKey, ...t }) => t);
 
-  res.json({ language: rawLang, mood, page, tracks });
+  res.json({ language: rawLang, mood, page, query: parsedQuery, tracks });
 }));
 
 // "?"? Real Trending Charts "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?

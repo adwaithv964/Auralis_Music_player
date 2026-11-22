@@ -67,7 +67,7 @@ export function Home() {
 
   // ── Derived track lists ──────────────────────────────────────
   const extPlayable  = useMemo(() => externalTracks.filter(trackHasAudio), [externalTracks]);
-  const indianSongs  = useMemo(() => extPlayable.filter(t => !isFullSong(t)), [extPlayable]);
+  const indianSongs  = useMemo(() => extPlayable.filter(t => t.sourceType !== 'audius'), [extPlayable]);
   const fullSongs    = useMemo(() => extPlayable.filter(isFullSong),          [extPlayable]);
   const allPlayable  = useMemo(() => [
     ...localTracks.filter(trackHasAudio), ...extPlayable

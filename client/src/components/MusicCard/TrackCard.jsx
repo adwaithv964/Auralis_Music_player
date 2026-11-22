@@ -23,7 +23,14 @@ export function TrackCard({ track, isActive, isPlaying, index, onPlay }) {
       </div>
       <div className="track-cover" style={{ background: bg }} />
       <div className="track-info">
-        <span className="track-title">{track.title}</span>
+        <div className="track-title-row">
+          <span className="track-title">{track.title}</span>
+          {track.versionInfo?.badge && (
+            <span className={`version-pill version-pill--${track.versionInfo.tier}`}>
+              {track.versionInfo.badge}
+            </span>
+          )}
+        </div>
         <span className="track-artist">{track.artist}</span>
       </div>
       <div className="track-album">{track.album}</div>

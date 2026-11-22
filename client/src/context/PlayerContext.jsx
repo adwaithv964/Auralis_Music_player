@@ -201,18 +201,18 @@ export function PlayerProvider({ children }) {
 
     try {
       const res = await fetch(
-        `/api/saavn/stream?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist || '')}`
+        `/api/saavn/stream?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist || '')}&album=${encodeURIComponent(track.album || '')}`
       );
 
       if (res.status === 404) {
-        // Track not on JioSaavn — show it as unavailable instead of silent failure
-        console.warn('[JioSaavn] Track not found:', track.title);
+        // Track unavailable — show it as unavailable instead of silent failure or wrong audio
+        console.warn('[Audio Stream] No verified track found:', track.title);
         setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
         setResolvingId(null);
         return;
       }
 
-      if (!res.ok) throw new Error(`Saavn resolve failed: ${res.status}`);
+      if (!res.ok) throw new Error(`Audio resolve failed: ${res.status}`);
 
       const saavn = await res.json();
       if (saavn?.streamUrl) {
@@ -221,9 +221,9 @@ export function PlayerProvider({ children }) {
           previewUrl:  saavn.streamUrl,
           isFull:      true,
           ytResolved:  true,
-          sourceType:  'itunes',
+          sourceType:  track.sourceType || 'saavn',
           contentType: saavn.contentType || 'audio/mp4',
-          lyrics:      ['Full track via JioSaavn', track.artist, track.album],
+          lyrics:      ['Full track via Verified Stream', track.artist, track.album],
         };
         resolvedCache.current.set(track.id, fullTrack);
         setCurrentTrack(fullTrack);
@@ -231,7 +231,7 @@ export function PlayerProvider({ children }) {
         pushHistory(fullTrack);
       }
     } catch (e) {
-      console.warn('[JioSaavn resolve failed]', e.message);
+      console.warn('[Audio resolve failed]', e.message);
       setCurrentTrack({ ...track, previewUrl: '', unavailable: true, ytLoading: false });
     } finally {
       setResolvingId(null);

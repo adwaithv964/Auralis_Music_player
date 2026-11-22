@@ -41,12 +41,13 @@ export function artProxy(url) {
 /** True if the track has a playable audio URL OR can be resolved on demand */
 export const trackHasAudio = (t) =>
   !!(t?.previewUrl) ||               // has direct URL
-  t?.sourceType === 'itunes' ||       // iTunes → resolve YouTube on demand
+  t?.sourceType === 'saavn' ||        // JioSaavn full 320kbps track
+  t?.sourceType === 'itunes' ||       // iTunes → resolve verified audio on demand
   t?.sourceType === 'audius' ||       // Audius full track
   !!(t?.title && t?.artist);          // has enough info to resolve
 
 /** True if the track is a full-length song (not a 30s preview) */
-export const isFullSong = (t) => t?.isFull === true || t?.sourceType === 'audius';
+export const isFullSong = (t) => t?.isFull === true || t?.sourceType === 'audius' || t?.sourceType === 'saavn';
 
 // ─── Cover background helper ──────────────────────────────────
 /**
