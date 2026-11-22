@@ -80,7 +80,7 @@ app.use(cookieParser());
 
 // ── Health & Readiness Probes (Ultra-fast, zero DB overhead for Uptime Monitors) ─
 app.get(["/healthz", "/api/healthz"], (req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  res.status(200).json({ status: "ok", version: "parity-v2", timestamp: new Date().toISOString() });
 });
 
 app.get(["/readyz", "/api/readyz"], (req, res) => {
