@@ -3,6 +3,7 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "client/dist",
+  "regions": ["bom1"],
   "rewrites": [
     {
       "source": "/healthz",
@@ -11,6 +12,10 @@
     {
       "source": "/readyz",
       "destination": "https://auralis-music-player-ta1r.onrender.com/readyz"
+    },
+    {
+      "source": "/api/saavn-india-gateway",
+      "destination": "/api/saavn-india-gateway"
     },
     {
       "source": "/api/:path*",
