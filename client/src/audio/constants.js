@@ -97,6 +97,10 @@ export const DEFAULT_DSP_SETTINGS = {
   speakerProtection: true,        // Hardware excursion & thermal protection for speakers
   autoHeadroomProtection: true,   // Anti-clip auto headroom scaling for custom user boosts
   badFrequencyFilter: true,       // Real-time bad resonance & noise suppression
+
+  // SafeListen Human Hearing Protection (WHO / ITU-T H.870)
+  hearingProtection: true,        // Active ear fatigue & acoustic shock protection
+  earFatigueControl: 1.5,         // Dynamic 3.5 kHz ear canal resonance damping (prevents tinnitus)
 };
 
 // Default Equalizer Settings (Independent from Sound Engine)

@@ -103,6 +103,56 @@ export function AdvancedDspTab() {
         </div>
       </div>
 
+      {/* ── SafeListen™ Human Hearing Protection ── */}
+      <div className="dsp-card">
+        <div className="dsp-card-title">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>SafeListen™ Human Hearing Protection (WHO / ITU-T H.870)</span>
+            <span style={{ fontSize: '0.75rem', color: '#67f0b7', fontWeight: 600 }}>Active Ear Guard</span>
+          </div>
+        </div>
+
+        <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: '#a9b1aa', lineHeight: 1.45 }}>
+          Engineered according to human psychoacoustic sensitivity (ISO 226). Dynamically cushions harsh ear-canal resonance
+          at 3.5 kHz and protects against sudden acoustic shock/ear blast, eliminating listener ear fatigue without muffling vocals or punch.
+        </p>
+
+        <div className="dsp-controls-grid">
+          <div className="dsp-control-group">
+            <div className="dsp-control-label-row">
+              <span>Human Hearing & Anti-Fatigue Guard</span>
+              <span className="dsp-control-val">{dspSettings.hearingProtection !== false ? 'ENABLED' : 'OFF'}</span>
+            </div>
+            <button
+              className={`dsp-btn-secondary${dspSettings.hearingProtection !== false ? ' active' : ''}`}
+              onClick={() => updateDsp({ hearingProtection: dspSettings.hearingProtection === false })}
+              style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'center' }}
+            >
+              {dspSettings.hearingProtection !== false ? '🛡️ SafeListen Hearing Guard: ACTIVE' : '⚠️ Hearing Protection Bypassed'}
+            </button>
+            <span className="dsp-control-hint">Prevents ear ringing, headache and fatigue during headphone listening</span>
+          </div>
+
+          <div className="dsp-control-group">
+            <div className="dsp-control-label-row">
+              <span>3.5 kHz Ear-Canal Resonance Damping</span>
+              <span className="dsp-control-val">{(dspSettings.earFatigueControl ?? 1.5).toFixed(1)} dB</span>
+            </div>
+            <input
+              type="range"
+              min="0.0"
+              max="3.0"
+              step="0.2"
+              value={dspSettings.earFatigueControl ?? 1.5}
+              disabled={dspSettings.hearingProtection === false}
+              onChange={e => updateDsp({ earFatigueControl: Number(e.target.value) })}
+              className="dsp-slider"
+            />
+            <span className="dsp-control-hint">Smooths the peak resonance of the human ear canal without reducing clarity</span>
+          </div>
+        </div>
+      </div>
+
       {/* ── Speaker Hardware Protection & Custom Boost Safety ── */}
       <div className="dsp-card">
         <div className="dsp-card-title">

@@ -87,13 +87,21 @@ export class VocalTrebleProcessor {
     this.denoiseFilter.frequency.value = 18500;
     this.denoiseFilter.Q.value = 0.707;
 
+    // 11. SafeListen Human Hearing Protection (3.5 kHz ISO 226 Ear Canal Resonance Cushion)
+    this.hearingProtectionFilter = audioCtx.createBiquadFilter();
+    this.hearingProtectionFilter.type = 'peaking';
+    this.hearingProtectionFilter.frequency.value = 3500;
+    this.hearingProtectionFilter.Q.value = 1.6;
+    this.hearingProtectionFilter.gain.value = 0;
+
     // Serial Chain Connection
     this.mudCutFilter.connect(this.vocalWarmthFilter);
     this.vocalWarmthFilter.connect(this.nasalNotchFilter);
     this.nasalNotchFilter.connect(this.vocalClarityFilter);
     this.vocalClarityFilter.connect(this.vocalPresenceFilter);
     this.vocalPresenceFilter.connect(this.harshnessFilter);
-    this.harshnessFilter.connect(this.deEsserFilter);
+    this.harshnessFilter.connect(this.hearingProtectionFilter);
+    this.hearingProtectionFilter.connect(this.deEsserFilter);
     this.deEsserFilter.connect(this.trebleDetailFilter);
     this.trebleDetailFilter.connect(this.airShelfFilter);
     this.airShelfFilter.connect(this.denoiseFilter);
@@ -123,16 +131,33 @@ export class VocalTrebleProcessor {
     const sibilanceCut  = (settings.sibilanceControl ?? 1.5) * intensityMult;
     const detailGain    = (settings.trebleDetail ?? 1.5) * intensityMult;
 
-    // Apply with smooth transitions
-    this.mudCutFilter.gain.setTargetAtTime(-mudCutDb, t, rampTime);
-    this.vocalWarmthFilter.gain.setTargetAtTime(Math.max(-3, Math.min(4, warmthGain)), t, rampTime);
-    this.nasalNotchFilter.gain.setTargetAtTime(Math.max(-6, Math.min(0, -nasalCut)), t, rampTime);
-    this.vocalClarityFilter.gain.setTargetAtTime(Math.max(-4, Math.min(7, clarityGain)), t, rampTime);
-    this.vocalPresenceFilter.gain.setTargetAtTime(Math.max(-4, Math.min(6, presenceGain)), t, rampTime);
-    this.harshnessFilter.gain.setTargetAtTime(Math.max(-8, Math.min(0, -harshnessCut)), t, rampTime);
+    // SafeListen Human Hearing Protection (ISO 226 Ear-Canal Resonance Cushion)
+    const isHearingProtected = settings.hearingProtection !== false;
+    const hearingFatigueCushion = isHearingProtected ? Math.min(2.5, 1.2 * Math.min(1.4, intensityMult)) : 0.0;
 
-    this.deEsserFilter.gain.setTargetAtTime(Math.max(-8, Math.min(0, -sibilanceCut * 1.2)), t, rampTime);
-    this.trebleDetailFilter.gain.setTargetAtTime(Math.max(-4, Math.min(5, detailGain + trebleGain * 0.35)), t, rampTime);
-    this.airShelfFilter.gain.setTargetAtTime(Math.max(-4, Math.min(6, airGain + trebleGain * 0.5)), t, rampTime);
+    // Apply with smooth transitions (or instantaneous at t=0)
+    if (t === 0) {
+      this.mudCutFilter.gain.setValueAtTime(-mudCutDb, 0);
+      this.vocalWarmthFilter.gain.setValueAtTime(Math.max(-3, Math.min(4, warmthGain)), 0);
+      this.nasalNotchFilter.gain.setValueAtTime(Math.max(-6, Math.min(0, -nasalCut)), 0);
+      this.vocalClarityFilter.gain.setValueAtTime(Math.max(-4, Math.min(7, clarityGain)), 0);
+      this.vocalPresenceFilter.gain.setValueAtTime(Math.max(-4, Math.min(6, presenceGain)), 0);
+      this.harshnessFilter.gain.setValueAtTime(Math.max(-8, Math.min(0, -harshnessCut)), 0);
+      this.hearingProtectionFilter.gain.setValueAtTime(-hearingFatigueCushion, 0);
+      this.deEsserFilter.gain.setValueAtTime(Math.max(-8, Math.min(0, -sibilanceCut * 1.2)), 0);
+      this.trebleDetailFilter.gain.setValueAtTime(Math.max(-4, Math.min(5, detailGain + trebleGain * 0.35)), 0);
+      this.airShelfFilter.gain.setValueAtTime(Math.max(-4, Math.min(6, airGain + trebleGain * 0.5)), 0);
+    } else {
+      this.mudCutFilter.gain.setTargetAtTime(-mudCutDb, t, rampTime);
+      this.vocalWarmthFilter.gain.setTargetAtTime(Math.max(-3, Math.min(4, warmthGain)), t, rampTime);
+      this.nasalNotchFilter.gain.setTargetAtTime(Math.max(-6, Math.min(0, -nasalCut)), t, rampTime);
+      this.vocalClarityFilter.gain.setTargetAtTime(Math.max(-4, Math.min(7, clarityGain)), t, rampTime);
+      this.vocalPresenceFilter.gain.setTargetAtTime(Math.max(-4, Math.min(6, presenceGain)), t, rampTime);
+      this.harshnessFilter.gain.setTargetAtTime(Math.max(-8, Math.min(0, -harshnessCut)), t, rampTime);
+      this.hearingProtectionFilter.gain.setTargetAtTime(-hearingFatigueCushion, t, rampTime);
+      this.deEsserFilter.gain.setTargetAtTime(Math.max(-8, Math.min(0, -sibilanceCut * 1.2)), t, rampTime);
+      this.trebleDetailFilter.gain.setTargetAtTime(Math.max(-4, Math.min(5, detailGain + trebleGain * 0.35)), t, rampTime);
+      this.airShelfFilter.gain.setTargetAtTime(Math.max(-4, Math.min(6, airGain + trebleGain * 0.5)), t, rampTime);
+    }
   }
 }

@@ -137,6 +137,10 @@ export class BassProcessor {
     const texture   = (settings.bassTexture ?? 1.5) / 5.0; // 0 to 2 scale
     const cutoff    = deviceOffsets.subSonicCutoff ?? (settings.subSonicFilter ? 22 : 10);
 
+    // Deep Bass & Sub-Bass clamping
+    const clampedDeep = Math.max(-6, Math.min(8, deepGain * intensity));
+    const clampedPunch = Math.max(-6, Math.min(8, punchGain * intensity));
+
     // Psychoacoustic Bass Generator (Missing Fundamental)
     const useHarmonics = settings.psychoacousticBass && (deviceOffsets.psychoacousticBass !== false);
     const targetHarmonicGain = useHarmonics ? Math.min(0.24, (0.14 + texture * 0.10) * Math.min(1.2, intensityMult)) : 0.0;
