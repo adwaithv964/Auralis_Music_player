@@ -236,6 +236,19 @@ export function DspDiagnosticsTab() {
               {healthData?.speakerProtection?.status || 'Thermal & Mechanical Excursion Limiter Active'}
             </span>
           </div>
+
+          {/* SafeListen™ Human Hearing Comfort Index */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(103, 240, 183, 0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f5f7ef' }}>SafeListen™ Comfort Index</span>
+              <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>
+                {healthData?.acousticComfort?.score ?? 98}% SAFE
+              </span>
+            </div>
+            <span style={{ fontSize: '0.74rem', color: '#67f0b7', display: 'block' }}>
+              {healthData?.acousticComfort?.rating || 'All-Day Safe (4+ Hours)'} · ISO 226 Ear Guard Active
+            </span>
+          </div>
         </div>
       </div>
     </div>

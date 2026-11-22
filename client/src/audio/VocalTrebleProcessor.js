@@ -122,8 +122,9 @@ export class VocalTrebleProcessor {
     const warmthGain    = (settings.vocalWarmth ?? 1.0) * intensityMult;
 
     // Anti-mud cut: scales dynamically when bass is boosted or clarity is requested
+    // Decouples low-end power from vocal fundamentals (200-350 Hz), preventing muffled or overwhelmed voices
     const bassLevel = (settings.deepBass || 0) + (settings.bassPunch || 0);
-    const mudCutDb = Math.min(3.5, 1.2 + (bassLevel * 0.18) + (clarityGain * 0.25));
+    const mudCutDb = Math.min(3.8, 1.2 + (bassLevel * 0.20) + (clarityGain * 0.25));
 
     // Treble params
     const trebleGain    = (settings.crystalTreble ?? 2.0) * intensityMult;
@@ -133,7 +134,8 @@ export class VocalTrebleProcessor {
 
     // SafeListen Human Hearing Protection (ISO 226 Ear-Canal Resonance Cushion)
     const isHearingProtected = settings.hearingProtection !== false;
-    const hearingFatigueCushion = isHearingProtected ? Math.min(2.5, 1.2 * Math.min(1.4, intensityMult)) : 0.0;
+    const userCushion = settings.earFatigueControl !== undefined ? Number(settings.earFatigueControl) : 1.5;
+    const hearingFatigueCushion = isHearingProtected ? Math.min(3.5, userCushion * Math.min(1.4, intensityMult)) : 0.0;
 
     // Apply with smooth transitions (or instantaneous at t=0)
     if (t === 0) {

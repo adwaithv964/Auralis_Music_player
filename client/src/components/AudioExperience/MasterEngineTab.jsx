@@ -51,7 +51,7 @@ export function MasterEngineTab() {
       {/* ── Master Profiles Selector ── */}
       <div className="dsp-card">
         <div className="dsp-card-title">
-          <span>Master Sound Profiles (17 Tuned Signatures)</span>
+          <span>Master Sound Profiles ({MASTER_PROFILES.length} Tuned Signatures)</span>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {categories.map(cat => (
               <button

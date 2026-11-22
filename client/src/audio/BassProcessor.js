@@ -146,17 +146,18 @@ export class BassProcessor {
     const targetHarmonicGain = useHarmonics ? Math.min(0.24, (0.14 + texture * 0.10) * Math.min(1.2, intensityMult)) : 0.0;
 
     // Apply with instantaneous initialization at t=0 for zero latency/tests, and smooth ramps during playback
+    // Calibrated sub-bass ratio (45 Hz: 0.45x, 80 Hz: 0.85x, 120 Hz: 0.82x) prevents overwhelming boominess while keeping tight kick punch
     if (t === 0) {
       this.subSonicFilter.frequency.setValueAtTime(cutoff, 0);
-      this.subBassFilter.gain.setValueAtTime(clampedDeep * 0.50, 0);
-      this.deepBassFilter.gain.setValueAtTime(clampedDeep * 0.90, 0);
-      this.midPunchFilter.gain.setValueAtTime(clampedPunch * 0.80, 0);
+      this.subBassFilter.gain.setValueAtTime(clampedDeep * 0.45, 0);
+      this.deepBassFilter.gain.setValueAtTime(clampedDeep * 0.85, 0);
+      this.midPunchFilter.gain.setValueAtTime(clampedPunch * 0.82, 0);
       this.harmonicGain.gain.setValueAtTime(targetHarmonicGain, 0);
     } else {
       this.subSonicFilter.frequency.setTargetAtTime(cutoff, t, rampTime);
-      this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.50, t, rampTime);
-      this.deepBassFilter.gain.setTargetAtTime(clampedDeep * 0.90, t, rampTime);
-      this.midPunchFilter.gain.setTargetAtTime(clampedPunch * 0.80, t, rampTime);
+      this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.45, t, rampTime);
+      this.deepBassFilter.gain.setTargetAtTime(clampedDeep * 0.85, t, rampTime);
+      this.midPunchFilter.gain.setTargetAtTime(clampedPunch * 0.82, t, rampTime);
       this.harmonicGain.gain.setTargetAtTime(targetHarmonicGain, t, rampTime);
     }
 

@@ -11,11 +11,12 @@ console.log('  AURALIS MUSIC — HIGH-FI DSP AUDIO ENGINE VALIDATION SUITE');
 console.log('================================================================\n');
 
 // ── 1. Validate Presets & Configurations ────────────────────────
-console.log('[TEST 1] Verifying 17 Master Sound Profiles and DSP Parameter Integrity...');
+console.log('[TEST 1] Verifying 18 Master Sound Profiles and DSP Parameter Integrity...');
 const presetsSource = fs.readFileSync('./client/src/audio/presets.js', 'utf8');
 
 const requiredProfiles = [
   'reference',
+  'all_day_comfort',
   'jbl_signature',
   'deep_bass',
   'extreme_bass',
