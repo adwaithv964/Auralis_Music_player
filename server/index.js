@@ -69,6 +69,19 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
+// ── Health & Readiness Probes (Ultra-fast, zero DB overhead for Uptime Monitors) ─
+app.get(["/healthz", "/api/healthz"], (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.get(["/readyz", "/api/readyz"], (req, res) => {
+  const isDbConnected = mongoose.connection.readyState === 1;
+  if (isDbConnected) {
+    return res.status(200).json({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
+  }
+  return res.status(503).json({ status: "degraded", db: "disconnected", timestamp: new Date().toISOString() });
+});
+
 // "?"? Global 55-second request timeout (prevents Vite 502 on slow resolvers) "?
 app.use((req, res, next) => {
   res.setTimeout(55000, () => {

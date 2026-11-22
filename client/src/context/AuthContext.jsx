@@ -14,6 +14,9 @@
  *    from localStorage or sessionStorage.
  *  • The refresh token is an HTTP-only Secure cookie — JS cannot read it.
  *  • On logout we clear every auralis:* localStorage key to prevent leakage.
+ *  • auralis:hasSession in localStorage serves ONLY as a non-sensitive hint
+ *    to determine whether to attempt silent refresh on mount. It never
+ *    authorizes access to protected data without server verification.
  */
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback,
@@ -22,7 +25,7 @@ import {
 export const AuthContext = createContext(null);
 
 // All auralis localStorage keys to wipe on logout
-const LS_KEYS = ['auralis:lastTrack', 'auralis:lastPosition', 'auralis:streamCache'];
+const LS_KEYS = ['auralis:lastTrack', 'auralis:lastPosition', 'auralis:streamCache', 'auralis:hasSession'];
 
 /** Wipe all user-specific localStorage on logout / account switch */
 function clearLocalStorage() {
@@ -30,36 +33,69 @@ function clearLocalStorage() {
 }
 
 export function AuthProvider({ children }) {
+  // Check if this browser has an active session hint from a prior login
+  const hasSessionHint = typeof window !== 'undefined' && localStorage.getItem('auralis:hasSession') === '1';
+
   const [currentUser,  setCurrentUser]  = useState(null);
   const [accessToken,  setAccessToken]  = useState(null);
-  const [authLoading,  setAuthLoading]  = useState(true); // true during initial refresh attempt
+  // For first-time visitors (no session hint), authLoading is false IMMEDIATELY
+  // so the public login page renders in 0ms without waiting for a backend cold start.
+  const [authLoading,  setAuthLoading]  = useState(hasSessionHint);
 
   // Prevent double refresh-on-mount in StrictMode
   const refreshAttempted = useRef(false);
+  // In-flight refresh promise deduplicator
+  const refreshPromiseRef = useRef(null);
 
-  // ── Silent refresh on app mount ────────────────────────────────────────────
-  // Try to exchange the HTTP-only refresh cookie for a new access token.
-  // If it fails (no cookie / expired) the user just stays logged out.
+  // ── Silent refresh on app mount (Only for returning users with session hint) ─
   useEffect(() => {
+    // First-time visitor or logged-out user: render public routes immediately
+    if (!hasSessionHint) {
+      setAuthLoading(false);
+      return;
+    }
+
     if (refreshAttempted.current) return;
     refreshAttempted.current = true;
 
-    fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000); // 8s timeout to prevent hanging
+
+    fetch('/api/auth/refresh', {
+      method:      'POST',
+      credentials: 'include',
+      signal:      controller.signal,
+    })
       .then(async res => {
-        if (!res.ok) throw new Error('no session');
+        if (!res.ok) {
+          const isAuthRejection = res.status === 401 || res.status === 403;
+          if (isAuthRejection) {
+            // Truly invalid or expired session — clear session hint
+            localStorage.removeItem('auralis:hasSession');
+          }
+          throw new Error(isAuthRejection ? 'Session expired' : `Server responded ${res.status}`);
+        }
         return res.json();
       })
       .then(data => {
+        localStorage.setItem('auralis:hasSession', '1');
         setAccessToken(data.accessToken);
         setCurrentUser(data.user);
       })
-      .catch(() => {
-        // No active session or server not yet ready — user sees login screen
+      .catch(err => {
+        if (err.name === 'AbortError') {
+          console.warn('[Auth] Initial refresh timed out (backend sleeping) — releasing login UI');
+        } else {
+          console.warn('[Auth] Initial refresh error:', err.message);
+        }
         setCurrentUser(null);
         setAccessToken(null);
       })
-      .finally(() => setAuthLoading(false));
-  }, []);
+      .finally(() => {
+        clearTimeout(timer);
+        setAuthLoading(false);
+      });
+  }, [hasSessionHint]);
 
   // ── Register ───────────────────────────────────────────────────────────────
   const register = useCallback(async (username, email, password) => {
@@ -71,6 +107,7 @@ export function AuthProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Registration failed');
+    localStorage.setItem('auralis:hasSession', '1');
     setAccessToken(data.accessToken);
     setCurrentUser(data.user);
     return data.user;
@@ -86,6 +123,7 @@ export function AuthProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Login failed');
+    localStorage.setItem('auralis:hasSession', '1');
     setAccessToken(data.accessToken);
     setCurrentUser(data.user);
     return data.user;
@@ -96,28 +134,48 @@ export function AuthProvider({ children }) {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch (_) { /* best-effort */ }
+    localStorage.removeItem('auralis:hasSession');
     clearLocalStorage();
     setAccessToken(null);
     setCurrentUser(null);
   }, []);
 
-  // ── Silent token refresh (called by api.js on 401) ─────────────────────────
+  // ── Silent token refresh (called by api.js on 401, deduplicated) ───────────
   const refreshToken = useCallback(async () => {
-    const res = await fetch('/api/auth/refresh', {
-      method:      'POST',
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      // Refresh failed — force logout
-      clearLocalStorage();
-      setAccessToken(null);
-      setCurrentUser(null);
-      throw new Error('Session expired — please log in again');
+    // If a refresh is already in-flight, return the existing promise
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current;
     }
-    const data = await res.json();
-    setAccessToken(data.accessToken);
-    setCurrentUser(data.user);
-    return data.accessToken;
+
+    const doRefresh = async () => {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 12000);
+        const res = await fetch('/api/auth/refresh', {
+          method:      'POST',
+          credentials: 'include',
+          signal:      ctrl.signal,
+        });
+        clearTimeout(tid);
+        if (!res.ok) {
+          localStorage.removeItem('auralis:hasSession');
+          clearLocalStorage();
+          setAccessToken(null);
+          setCurrentUser(null);
+          throw new Error('Session expired — please log in again');
+        }
+        const data = await res.json();
+        localStorage.setItem('auralis:hasSession', '1');
+        setAccessToken(data.accessToken);
+        setCurrentUser(data.user);
+        return data.accessToken;
+      } finally {
+        refreshPromiseRef.current = null;
+      }
+    };
+
+    refreshPromiseRef.current = doRefresh();
+    return refreshPromiseRef.current;
   }, []);
 
   const value = {

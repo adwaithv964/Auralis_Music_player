@@ -31,11 +31,15 @@ export function setApiToken(token, refreshFn, onLogout) {
 // ── Internal fetch wrapper with auth + auto-refresh ─────────────────────────
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+// In-flight token refresh promise deduplicator across concurrent 401s
+let _pendingRefreshPromise = null;
+
 /**
  * authFetch — wraps fetch with:
  *  1. Authorization: Bearer <token> header
- *  2. On 401: silent token refresh + one retry
- *  3. On second 401: logout and throw
+ *  2. 20s network timeout safeguard via AbortController
+ *  3. Deduplicated silent token refresh on 401 + one retry
+ *  4. On second 401: logout and throw
  */
 async function authFetch(url, options = {}, retry = true) {
   const headers = {
@@ -45,16 +49,35 @@ async function authFetch(url, options = {}, retry = true) {
   };
   const body = options.json ? JSON.stringify(options.json) : options.body;
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    body,
-    credentials: 'include', // always send cookies (for refresh)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+      body,
+      credentials: 'include', // always send cookies (for refresh)
+      signal: options.signal || controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Request timed out: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (res.status === 401 && retry && _refreshFn) {
     try {
-      const newToken = await _refreshFn();
+      if (!_pendingRefreshPromise) {
+        _pendingRefreshPromise = _refreshFn().finally(() => {
+          _pendingRefreshPromise = null;
+        });
+      }
+      const newToken = await _pendingRefreshPromise;
       _token = newToken;
       // Retry original request with new token
       return authFetch(url, options, false);

@@ -9,15 +9,37 @@
  *
  * This file is intentionally thin. All logic lives in context/ and pages/.
  */
+import { lazy, Suspense }       from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-
 import { AppProvider }          from './context/AppContext';
 import { PlayerProvider }       from './context/PlayerContext';
 import { AlbumThemeProvider }   from './context/AlbumThemeContext';
-import { AppShell }             from './AppShell';
 import { AuthPage }             from './pages/Auth/AuthPage';
 import { setApiToken }          from './services/api';
 import './index.css';
+
+// Lazy-load AppShell so unauthenticated visitors only load the small auth bundle
+const AppShell = lazy(() => import('./AppShell').then(m => ({ default: m.AppShell })));
+
+function LoadingSpinner() {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'var(--bg-base, #0a0f0d)',
+      zIndex: 9999,
+    }}>
+      <div style={{
+        width: 36, height: 36,
+        border: '3px solid rgba(103,240,183,0.2)',
+        borderTopColor: 'var(--accent, #67f0b7)',
+        borderRadius: '50%',
+        animation: 'spin 0.7s linear infinite',
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 /**
  * AuthGate — conditionally renders the app or the login screen.
@@ -32,26 +54,9 @@ function AuthGate() {
   // always have a valid token. A useEffect would run AFTER child effects.
   setApiToken(accessToken, refreshToken, logout);
 
-  // While the initial silent-refresh is in progress, show nothing
-  // (avoids a flash of the login page for users with a valid cookie)
+  // While returning user silent-refresh is in progress, show spinner
   if (authLoading) {
-    return (
-      <div style={{
-        position: 'fixed', inset: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg-base, #0a0f0d)',
-        zIndex: 9999,
-      }}>
-        <div style={{
-          width: 36, height: 36,
-          border: '3px solid rgba(103,240,183,0.2)',
-          borderTopColor: 'var(--accent, #67f0b7)',
-          borderRadius: '50%',
-          animation: 'spin 0.7s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   if (!currentUser) {
@@ -62,7 +67,9 @@ function AuthGate() {
     <AppProvider>
       <PlayerProvider>
         <AlbumThemeProvider>
-          <AppShell />
+          <Suspense fallback={<LoadingSpinner />}>
+            <AppShell />
+          </Suspense>
         </AlbumThemeProvider>
       </PlayerProvider>
     </AppProvider>
