@@ -91,15 +91,23 @@ app.use((req, res, next) => {
 });
 
 // "?"? DB-ready flag (set after mongoose.connect succeeds) "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
-let dbReady = false;
+// ── Dynamic DB-Ready Guard ──────────────────────────────────────────────────
+// Prevent long 10-second buffering timeouts when MongoDB is disconnected.
+mongoose.set('bufferTimeoutMS', 3000);
 
-// Routes that need MongoDB ?" return 503 until connected
-const DB_ROUTES = ['/api/bootstrap', '/api/playlists', '/api/tracks', '/api/history',
-  '/api/favorites', '/api/library', '/api/preferences', '/api/excluded', '/api/auth'];
+const DB_ROUTES = [
+  '/api/bootstrap', '/api/playlists', '/api/tracks', '/api/history',
+  '/api/favorites', '/api/library', '/api/preferences', '/api/excluded', '/api/auth'
+];
 
 app.use((req, res, next) => {
-  if (!dbReady && DB_ROUTES.some(r => req.path.startsWith(r))) {
-    return res.status(503).json({ error: 'Database not ready yet ?" please retry in a moment' });
+  const isConnected = mongoose.connection.readyState === 1;
+  if (!isConnected && DB_ROUTES.some(r => req.path.startsWith(r))) {
+    const isLocal = process.env.NODE_ENV !== 'production';
+    const msg = isLocal
+      ? 'Database not connected. If running locally with MongoDB Atlas, whitelist your IP in Atlas Network Access, or ensure local MongoDB is running.'
+      : 'Database not ready yet — please retry in a moment';
+    return res.status(503).json({ error: msg, code: 'DB_NOT_READY' });
   }
   next();
 });
@@ -1625,21 +1633,44 @@ const server = app.listen(port, () => {
 server.keepAliveTimeout = 65000;
 server.headersTimeout   = 66000;
 
-// Connect to MongoDB in the background
-mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 30000 })
-  .then(() => {
-    console.log("MongoDB connected");
-    dbReady = true;
-  })
-  .catch(e => {
-    console.error("MongoDB connection failed:", e.message);
-    console.warn("  DB-dependent routes will return 503 until connection succeeds.");
-    // Retry every 30s
-    const retry = setInterval(() => {
-      mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 30000 })
-        .then(() => { console.log("MongoDB reconnected"); dbReady = true; clearInterval(retry); })
-        .catch(err => console.error("MongoDB retry failed:", err.message));
-    }, 30000);
-  });
+// ── Robust MongoDB Connection with Dev Local Fallback ─────────────────────────
+let retryTimer = null;
+
+async function attemptMongoConnect() {
+  const isCloudUri = mongoURI.startsWith('mongodb+srv://') || (!mongoURI.includes('127.0.0.1') && !mongoURI.includes('localhost'));
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  try {
+    console.log(`[MongoDB] Connecting to ${mongoURI.replace(/\/\/.*@/, '//***@')} ...`);
+    await mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 5000 });
+    console.log('[MongoDB] Connected successfully');
+    if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+  } catch (err) {
+    console.error('[MongoDB] Connection failed:', err.message);
+    if (err.message.includes('whitelist') || err.message.includes('Could not connect to any servers')) {
+      console.warn('  -> Tip: Check MongoDB Atlas IP whitelist (Security -> Network Access -> Add IP Address)');
+    }
+
+    // In local development, if remote Atlas fails (e.g. IP not whitelisted), automatically fallback to local MongoDB
+    if (isDev && isCloudUri) {
+      const localFallback = 'mongodb://127.0.0.1:27017/auralis';
+      console.warn(`[MongoDB] Attempting local fallback at ${localFallback} ...`);
+      try {
+        await mongoose.connect(localFallback, { serverSelectionTimeoutMS: 3000 });
+        console.log('[MongoDB] Connected to local MongoDB fallback successfully!');
+        if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+        return;
+      } catch (localErr) {
+        console.error('[MongoDB] Local fallback failed:', localErr.message);
+      }
+    }
+
+    if (!retryTimer) {
+      retryTimer = setInterval(attemptMongoConnect, 20000);
+    }
+  }
+}
+
+attemptMongoConnect();
 
 
