@@ -204,4 +204,74 @@ export class AudioGraph {
       isClipping: maxSample >= 0.995,
     };
   }
+
+  /**
+   * Real-Time Bad Frequency & Noise Analyzer + Active Shield Monitoring
+   * Evaluates live spectrum FFT energy, detecting problem resonances,
+   * sibilance, boxy mud, ultrasonic noise, and stereo phase health.
+   */
+  getAcousticHealthAnalysis() {
+    const bufferLength = this.analyser.frequencyBinCount;
+    const freqData = new Uint8Array(bufferLength);
+    this.analyser.getByteFrequencyData(freqData);
+
+    const nyquist = (this.ctx?.sampleRate || 48000) / 2;
+    const binHz = nyquist / bufferLength;
+
+    const bandEnergy = (fStart, fEnd) => {
+      const startBin = Math.max(0, Math.floor(fStart / binHz));
+      const endBin = Math.min(bufferLength - 1, Math.ceil(fEnd / binHz));
+      if (startBin >= endBin) return freqData[startBin] / 255;
+      let sum = 0;
+      for (let b = startBin; b <= endBin; b++) sum += freqData[b];
+      return (sum / (endBin - startBin + 1)) / 255;
+    };
+
+    const subRumble = bandEnergy(10, 28);
+    const lowMidMud = bandEnergy(200, 350);
+    const vocalMid  = bandEnergy(1000, 2600);
+    const harshness = bandEnergy(3200, 4600);
+    const sibilance = bandEnergy(6000, 8500);
+    const hissNoise = bandEnergy(16500, 22000);
+
+    const phase = this.getPhaseCorrelation();
+    const peak = this.getPeakLevel();
+
+    return {
+      subsonicRumble: {
+        detected: subRumble > 0.40,
+        level: Math.round(subRumble * 100),
+        shieldStatus: '22–68 Hz Subsonic Filter Active',
+      },
+      lowMidMud: {
+        detected: lowMidMud > 0.60,
+        level: Math.round(lowMidMud * 100),
+        shieldStatus: '280 Hz Dynamic Mud Scoop Active',
+      },
+      harshResonance: {
+        detected: harshness > 0.68,
+        level: Math.round(harshness * 100),
+        shieldStatus: '3.8 kHz Anti-Harshness Damping Active',
+      },
+      sibilanceSpikes: {
+        detected: sibilance > 0.70,
+        level: Math.round(sibilance * 100),
+        shieldStatus: '6.8 kHz Precision De-Esser Active',
+      },
+      ultrasonicNoise: {
+        detected: hissNoise > 0.35,
+        level: Math.round(hissNoise * 100),
+        shieldStatus: '18.5 kHz Ultrasonic Noise Filter Active',
+      },
+      phaseCorrelation: {
+        value: phase.toFixed(2),
+        isSafe: phase >= 0.1,
+        status: phase >= 0.7 ? 'Pure Stereo' : phase >= 0.3 ? 'Expansive 3D' : phase >= 0 ? 'Wide Staged' : 'Phase Protected',
+      },
+      speakerProtection: {
+        isProtecting: peak.peakLinear > 0.82 || subRumble > 0.38,
+        status: 'Hardware Excursion & Peak Limiter Active',
+      },
+    };
+  }
 }

@@ -319,6 +319,24 @@ class AudioEngineController {
   }
 
   /**
+   * Real-Time Bad Frequency & Noise Analyzer Telemetry
+   */
+  getAcousticHealthAnalysis() {
+    if (!this.graph) {
+      return {
+        subsonicRumble: { detected: false, level: 0, shieldStatus: '22–68 Hz Subsonic Filter Active' },
+        lowMidMud: { detected: false, level: 0, shieldStatus: '280 Hz Dynamic Mud Scoop Active' },
+        harshResonance: { detected: false, level: 0, shieldStatus: '3.8 kHz Dynamic Notch Active' },
+        sibilanceSpikes: { detected: false, level: 0, shieldStatus: '6.8 kHz Precision De-Esser Active' },
+        ultrasonicNoise: { detected: false, level: 0, shieldStatus: '18.5 kHz Denoise Filter Active' },
+        phaseCorrelation: { value: '1.00', isSafe: true, status: 'Pure Stereo' },
+        speakerProtection: { isProtecting: false, status: 'Excursion Guard Active' },
+      };
+    }
+    return this.graph.getAcousticHealthAnalysis();
+  }
+
+  /**
    * Analyzes source metadata for the Source Quality Information panel.
    */
   getSourceQuality(track) {

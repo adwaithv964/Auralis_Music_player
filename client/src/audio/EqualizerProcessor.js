@@ -66,15 +66,36 @@ export class EqualizerProcessor {
     const isEnabled = !!eqSettings.eqEnabled;
     const bands = eqSettings.bands || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+    // Auto-Headroom Protection for custom user EQ boosts:
+    // If a user cranks multiple bands heavily, calculate total positive energy
+    // and dynamically compensate to prevent inter-filter digital clipping and speaker blowout.
+    let positiveBoostSum = 0;
+    bands.forEach(b => { if (b > 0) positiveBoostSum += Number(b); });
+
+    let autoGainOffsetDb = 0;
+    if (positiveBoostSum > 6.0) {
+      autoGainOffsetDb = -Math.min(6.0, (positiveBoostSum - 6.0) * 0.35);
+    }
+    const targetWetGain = isEnabled ? Math.pow(10, autoGainOffsetDb / 20) : 0.0;
+
     // Smooth Wet / Dry crossfade
-    this.wetGain.gain.setTargetAtTime(isEnabled ? 1.0 : 0.0, t, rampTime);
-    this.dryGain.gain.setTargetAtTime(isEnabled ? 0.0 : 1.0, t, rampTime);
+    if (t === 0) {
+      this.wetGain.gain.setValueAtTime(targetWetGain, 0);
+      this.dryGain.gain.setValueAtTime(isEnabled ? 0.0 : 1.0, 0);
+    } else {
+      this.wetGain.gain.setTargetAtTime(targetWetGain, t, rampTime);
+      this.dryGain.gain.setTargetAtTime(isEnabled ? 0.0 : 1.0, t, rampTime);
+    }
 
     // Update filter gains (-12 dB to +12 dB clamped)
     this.filters.forEach((filter, idx) => {
       const rawGain = bands[idx] ?? 0;
       const targetGain = Math.max(-12, Math.min(12, rawGain));
-      filter.gain.setTargetAtTime(targetGain, t, rampTime);
+      if (t === 0) {
+        filter.gain.setValueAtTime(targetGain, 0);
+      } else {
+        filter.gain.setTargetAtTime(targetGain, t, rampTime);
+      }
     });
   }
 }

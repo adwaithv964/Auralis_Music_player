@@ -92,6 +92,11 @@ export const DEFAULT_DSP_SETTINGS = {
   inputGain: 0.0,                 // dB (-12 to +6)
   outputCeiling: -0.5,            // dBTP (-3.0 to -0.1)
   softLimiterEnabled: true,
+
+  // Speaker Protection & Auto-Headroom Guards
+  speakerProtection: true,        // Hardware excursion & thermal protection for speakers
+  autoHeadroomProtection: true,   // Anti-clip auto headroom scaling for custom user boosts
+  badFrequencyFilter: true,       // Real-time bad resonance & noise suppression
 };
 
 // Default Equalizer Settings (Independent from Sound Engine)

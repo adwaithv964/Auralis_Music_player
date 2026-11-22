@@ -137,25 +137,28 @@ export class BassProcessor {
     const texture   = (settings.bassTexture ?? 1.5) / 5.0; // 0 to 2 scale
     const cutoff    = deviceOffsets.subSonicCutoff ?? (settings.subSonicFilter ? 22 : 10);
 
-    // Sub-Sonic filter
-    this.subSonicFilter.frequency.setTargetAtTime(cutoff, t, rampTime);
+    // Psychoacoustic Bass Generator (Missing Fundamental)
+    const useHarmonics = settings.psychoacousticBass && (deviceOffsets.psychoacousticBass !== false);
+    const targetHarmonicGain = useHarmonics ? Math.min(0.24, (0.14 + texture * 0.10) * Math.min(1.2, intensityMult)) : 0.0;
 
-    // Deep Bass & Sub-Bass: Sculpted so sub-bass provides visceral foundation without muddiness
-    const clampedDeep = Math.max(-6, Math.min(8, deepGain * intensity));
-    const clampedPunch = Math.max(-6, Math.min(8, punchGain * intensity));
-
-    this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.45, t, rampTime);
-    this.deepBassFilter.gain.setTargetAtTime(clampedDeep * 0.65, t, rampTime);
-    this.midPunchFilter.gain.setTargetAtTime(clampedPunch * 0.75, t, rampTime);
+    // Apply with instantaneous initialization at t=0 for zero latency/tests, and smooth ramps during playback
+    if (t === 0) {
+      this.subSonicFilter.frequency.setValueAtTime(cutoff, 0);
+      this.subBassFilter.gain.setValueAtTime(clampedDeep * 0.50, 0);
+      this.deepBassFilter.gain.setValueAtTime(clampedDeep * 0.90, 0);
+      this.midPunchFilter.gain.setValueAtTime(clampedPunch * 0.80, 0);
+      this.harmonicGain.gain.setValueAtTime(targetHarmonicGain, 0);
+    } else {
+      this.subSonicFilter.frequency.setTargetAtTime(cutoff, t, rampTime);
+      this.subBassFilter.gain.setTargetAtTime(clampedDeep * 0.50, t, rampTime);
+      this.deepBassFilter.gain.setTargetAtTime(clampedDeep * 0.90, t, rampTime);
+      this.midPunchFilter.gain.setTargetAtTime(clampedPunch * 0.80, t, rampTime);
+      this.harmonicGain.gain.setTargetAtTime(targetHarmonicGain, t, rampTime);
+    }
 
     // Transparent peak protection only for high outputs
     const compThresh = Math.max(-4.5, -2.5 - (clampedDeep * 0.15));
     this.bassCompressor.threshold.setTargetAtTime(compThresh, t, rampTime);
     this.bassCompressor.ratio.setTargetAtTime(1.15 + (settings.bassCompression ? 0.15 : 0.0), t, rampTime);
-
-    // Psychoacoustic Bass Generator (Missing Fundamental)
-    const useHarmonics = settings.psychoacousticBass && (deviceOffsets.psychoacousticBass !== false);
-    const targetHarmonicGain = useHarmonics ? Math.min(0.24, (0.14 + texture * 0.10) * Math.min(1.2, intensityMult)) : 0.0;
-    this.harmonicGain.gain.setTargetAtTime(targetHarmonicGain, t, rampTime);
   }
 }

@@ -129,6 +129,7 @@ export function AudioEngineProvider({ children }) {
     resetDsp,
     resetEq,
     getTelemetry: () => audioEngine.getTelemetry(),
+    getAcousticHealthAnalysis: () => audioEngine.getAcousticHealthAnalysis(),
     getSourceQuality: (track) => audioEngine.getSourceQuality(track),
   };
 

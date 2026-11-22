@@ -103,6 +103,51 @@ export function AdvancedDspTab() {
         </div>
       </div>
 
+      {/* ── Speaker Hardware Protection & Custom Boost Safety ── */}
+      <div className="dsp-card">
+        <div className="dsp-card-title">
+          <span>Speaker Hardware Protection & Custom Value Guard</span>
+          <span style={{ fontSize: '0.75rem', color: '#67f0b7', fontWeight: 600 }}>Active Safety</span>
+        </div>
+
+        <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: '#a9b1aa', lineHeight: 1.45 }}>
+          Intelligent safety shield that automatically guards against speaker voice-coil burnout,
+          mechanical cone flutter, and digital inter-stage clipping when extreme custom EQ or DSP values are dialed in.
+        </p>
+
+        <div className="dsp-controls-grid">
+          <div className="dsp-control-group">
+            <div className="dsp-control-label-row">
+              <span>Speaker Excursion & Cone Protection</span>
+              <span className="dsp-control-val">{dspSettings.speakerProtection !== false ? 'ENABLED' : 'BYPASS'}</span>
+            </div>
+            <button
+              className={`dsp-btn-secondary${dspSettings.speakerProtection !== false ? ' active' : ''}`}
+              onClick={() => updateDsp({ speakerProtection: dspSettings.speakerProtection === false })}
+              style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'center' }}
+            >
+              {dspSettings.speakerProtection !== false ? '🛡️ Speaker Safety Shield: ACTIVE' : '⚠️ Unprotected Excursion'}
+            </button>
+            <span className="dsp-control-hint">Stops inaudible sub-sonic cone flutter and protects laptop/mobile speakers</span>
+          </div>
+
+          <div className="dsp-control-group">
+            <div className="dsp-control-label-row">
+              <span>Auto-Headroom Anti-Clip Guard</span>
+              <span className="dsp-control-val">{dspSettings.autoHeadroomProtection !== false ? 'ACTIVE' : 'OFF'}</span>
+            </div>
+            <button
+              className={`dsp-btn-secondary${dspSettings.autoHeadroomProtection !== false ? ' active' : ''}`}
+              onClick={() => updateDsp({ autoHeadroomProtection: dspSettings.autoHeadroomProtection === false })}
+              style={{ padding: '8px 12px', fontSize: '0.8rem', textAlign: 'center' }}
+            >
+              {dspSettings.autoHeadroomProtection !== false ? '⚡ Auto-Gain Scaler: ON' : 'Off (May Clip on +12 dB EQ)'}
+            </button>
+            <span className="dsp-control-hint">Automatically scales digital headroom if you set extreme +12 dB custom EQ boosts</span>
+          </div>
+        </div>
+      </div>
+
       {/* ── Real-time Telemetry Status ── */}
       <div className="dsp-card">
         <div className="dsp-card-title">

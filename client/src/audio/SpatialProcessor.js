@@ -226,17 +226,25 @@ export class SpatialProcessor {
     const sideGain = Math.max(0.0, Math.min(1.25, baseWidth));
     const midGain  = 1.0; // Keep lead vocal, snare, and kick drum 100% solid & uncompromised
 
-    this.midWidthGain.gain.setTargetAtTime(midGain, t, rampTime);
-    this.sideWidthGain.gain.setTargetAtTime(sideGain, t, rampTime);
-
     // Apply Crossfeed
     const safeCrossfeed = Math.max(0.0, Math.min(0.55, crossfeedLevel));
-    this.crossfeedGainLtoR.gain.setTargetAtTime(safeCrossfeed * 0.42, t, rampTime);
-    this.crossfeedGainRtoL.gain.setTargetAtTime(safeCrossfeed * 0.42, t, rampTime);
-
     // Apply Early Reflections
     const safeRefl = Math.max(0.0, Math.min(0.35, reflectionLevel));
-    this.reflGainL.gain.setTargetAtTime(safeRefl * 0.22, t, rampTime);
-    this.reflGainR.gain.setTargetAtTime(safeRefl * 0.22, t, rampTime);
+
+    if (t === 0) {
+      this.midWidthGain.gain.setValueAtTime(midGain, 0);
+      this.sideWidthGain.gain.setValueAtTime(sideGain, 0);
+      this.crossfeedGainLtoR.gain.setValueAtTime(safeCrossfeed * 0.42, 0);
+      this.crossfeedGainRtoL.gain.setValueAtTime(safeCrossfeed * 0.42, 0);
+      this.reflGainL.gain.setValueAtTime(safeRefl * 0.22, 0);
+      this.reflGainR.gain.setValueAtTime(safeRefl * 0.22, 0);
+    } else {
+      this.midWidthGain.gain.setTargetAtTime(midGain, t, rampTime);
+      this.sideWidthGain.gain.setTargetAtTime(sideGain, t, rampTime);
+      this.crossfeedGainLtoR.gain.setTargetAtTime(safeCrossfeed * 0.42, t, rampTime);
+      this.crossfeedGainRtoL.gain.setTargetAtTime(safeCrossfeed * 0.42, t, rampTime);
+      this.reflGainL.gain.setTargetAtTime(safeRefl * 0.22, t, rampTime);
+      this.reflGainR.gain.setTargetAtTime(safeRefl * 0.22, t, rampTime);
+    }
   }
 }
