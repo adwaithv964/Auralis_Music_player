@@ -58,6 +58,9 @@ import {
   setMediaSessionHandlers,
   setMediaSessionPlaybackState,
 } from './MediaSession';
+// Phase 4: LyricsEngine integration — lazy import to avoid circular dependency
+// lyricsEngine is a singleton; import at module level is safe.
+import { lyricsEngine }         from '../lyrics/LyricsEngine';
 
 // ─── PlaybackEngine class ─────────────────────────────────────────────────────
 
@@ -161,6 +164,10 @@ class PlaybackEngine {
     audioLogger.info(PlaybackEvent.SONG_PAUSED, 'Playback paused');
     setMediaSessionPlaybackState('paused');
 
+    // Notify LyricsEngine — stops the rAF sync loop
+    audioLogger.info('[integration]', 'PlaybackEngine.pause() → lyricsEngine.onPlaybackPaused()');
+    lyricsEngine.onPlaybackPaused();
+
     // Save position immediately on pause
     sessionPersistence.save(
       usePlayerStore.getState(),
@@ -176,6 +183,10 @@ class PlaybackEngine {
     await audioEngine.play();
     audioLogger.info(PlaybackEvent.SONG_RESUMED, 'Playback resumed');
     setMediaSessionPlaybackState('playing');
+
+    // Notify LyricsEngine — restarts the rAF sync loop if lyrics are loaded
+    audioLogger.info('[integration]', 'PlaybackEngine.resume() → lyricsEngine.onPlaybackStarted()');
+    lyricsEngine.onPlaybackStarted();
   }
 
   /**
@@ -303,6 +314,9 @@ class PlaybackEngine {
   clearQueue() {
     queueEngine.clearQueue();
     prefetchSystem.cancel();
+    // Clear lyrics when queue is explicitly cleared
+    audioLogger.info('[integration]', 'PlaybackEngine.clearQueue() → lyricsEngine.clearLyrics()');
+    lyricsEngine.clearLyrics();
   }
 
   /**
@@ -311,6 +325,23 @@ class PlaybackEngine {
    */
   moveQueueItem(from, to) {
     queueEngine.moveQueueItem(from, to);
+  }
+
+  /**
+   * Jump directly to a track at the given index in the active queue.
+   * Immediately starts playback of that track.
+   *
+   * @param {number} index - Zero-based index into the active queue
+   * @returns {Promise<void>}
+   */
+  async jumpToQueueIndex(index) {
+    const song = queueEngine.jumpToIndex(index);
+    if (!song) {
+      audioLogger.warn('playback-engine', `jumpToQueueIndex(${index}): no song at that index`);
+      return;
+    }
+    audioLogger.info('[integration]', `Queue jump → index ${index} "${song.title}"`);
+    return this.playSong(song);
   }
 
   /**
@@ -522,6 +553,15 @@ class PlaybackEngine {
     // ── Step 5: Update queue + store ──────────────────────────────────────
     queueEngine.onSongStarted(song);
     usePlayerStore.getState().setCurrentSong(song);
+
+    // ── Step 5a: Notify LyricsEngine — deterministic, not reactive ────────
+    // Explicit call ensures lyrics load immediately for crossfade, gapless,
+    // autoplay, and session-restore scenarios without waiting for Zustand
+    // subscription propagation.
+    audioLogger.info('[integration]', `PlaybackEngine → lyricsEngine.onSongChanged("${song.title}")`);
+    lyricsEngine.onSongChanged(song).catch(err => {
+      audioLogger.warn('lyrics-engine', 'onSongChanged failed (non-fatal)', err?.message);
+    });
 
     // ── Step 6: Apply any pending seek position (from session restore) ─────
     this._applyPendingSeek();

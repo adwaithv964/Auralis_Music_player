@@ -19,10 +19,13 @@
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback,
 } from 'react';
-import { api } from '../services/api';
-import { useAuth } from './AuthContext';
-import { trackHasAudio } from '../utils/audioHelpers';
-import { DEFAULT_PREFS } from '../utils/constants';
+import { api }                from '../services/api';
+import { useAuth }           from './AuthContext';
+import { trackHasAudio }     from '../utils/audioHelpers';
+import { DEFAULT_PREFS }     from '../utils/constants';
+import { audioEngine }       from '../audio/AudioEngine';
+import { playbackEngine }    from '../audio/PlaybackEngine';
+import { streamResolver }    from '../audio/StreamResolver';
 
 export const AppContext = createContext(null);
 
@@ -159,6 +162,42 @@ export function AppProvider({ children }) {
     document.body.setAttribute('data-theme', prefs.theme || 'dark');
     document.body.style.setProperty('--accent', prefs.accent || '#1db954');
   }, [prefs.theme, prefs.accent]);
+
+  // ── Integration: EQ prefs → AudioEngine.setEQBand() ──────────────────
+  // Fires whenever any EQ slider changes. Converts the 0–100 slider value
+  // to ±12 dB gain and passes it to the Web Audio BiquadFilterNode.
+  // EQChain has 5 bands (indices 0–4); prefs stores up to eq_6 for the 7-band
+  // UI — only bands 0–4 are wired to the AudioEngine's 5-band chain.
+  useEffect(() => {
+    for (let i = 0; i < 5; i++) {
+      const sliderVal = prefs[`eq_${i}`];
+      if (sliderVal !== undefined) {
+        // Map 0–100 → -12dB to +12dB (50 = 0 dB)
+        const gainDb = ((sliderVal - 50) / 50) * 12;
+        audioEngine.setEQBand(i, gainDb);
+        console.log(`[integration] EQ band ${i} → ${gainDb.toFixed(1)} dB (slider: ${sliderVal})`);
+      }
+    }
+  }, [
+    prefs.eq_0, prefs.eq_1, prefs.eq_2, prefs.eq_3, prefs.eq_4, // eslint-disable-line react-hooks/exhaustive-deps
+  ]);
+
+  // ── Integration: streamQuality → StreamResolver.setQualityHint() ────────
+  // Notifies the stream resolver of the user's preferred quality. Takes
+  // effect on the next song resolution; currently playing stream is unaffected.
+  useEffect(() => {
+    if (prefs.streamQuality) {
+      streamResolver.setQualityHint(prefs.streamQuality);
+    }
+  }, [prefs.streamQuality]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Integration: playbackSpeed → PlaybackEngine.setPlaybackRate() ───────
+  // Applies the saved playback speed pref immediately and on every change.
+  useEffect(() => {
+    const rate = prefs.playbackSpeed ?? 1.0;
+    playbackEngine.setPlaybackRate(rate);
+    console.log(`[integration] Playback speed → ${rate}x`);
+  }, [prefs.playbackSpeed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persist language to preferences when user changes it ─────
   const changeLanguage = useCallback((lang) => {

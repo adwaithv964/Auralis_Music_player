@@ -71,6 +71,13 @@ class StreamResolver {
      */
     this._controllers = new Map();
 
+    /**
+     * Quality hint set by AppContext when prefs.streamQuality changes.
+     * Used by resolution stages to select bitrate (advisory).
+     * @type {string}
+     */
+    this._qualityHint = 'auto';
+
     audioLogger.log('stream-resolver', 'StreamResolver initialised');
   }
 
@@ -208,6 +215,33 @@ class StreamResolver {
   }
 
   /**
+   * Set a quality hint that influences stream URL selection on the next resolution.
+   *
+   * The hint is advisory — if the upstream source does not support quality selection
+   * (e.g. Audius, local files), it is ignored silently.
+   *
+   * @param {'auto'|'low'|'normal'|'high'|'very_high'|'lossless'} quality
+   */
+  setQualityHint(quality) {
+    const prev = this._qualityHint;
+    this._qualityHint = quality || 'auto';
+    if (prev !== this._qualityHint) {
+      audioLogger.info('[integration]', `StreamResolver quality hint → "${this._qualityHint}"`);
+      // Evict all cached URLs so next resolution uses the new quality hint
+      this._cache.clear();
+      audioLogger.log('stream-resolver', 'URL cache cleared after quality change');
+    }
+  }
+
+  /**
+   * Return the active quality hint.
+   * @returns {string}
+   */
+  getQualityHint() {
+    return this._qualityHint || 'auto';
+  }
+
+  /**
    * Clear the entire URL cache.
    * Use sparingly — normally prefer per-entry invalidation.
    */
@@ -289,6 +323,12 @@ class StreamResolver {
     } catch (err) {
       if (err.name === 'AbortError') throw err;
       audioLogger.log('stream-resolver', `YouTube fallback also failed for "${song.title}"`, err.message);
+    }
+
+    // ── Last resort fallback: preview URL if available ────────────────────
+    if (song.previewUrl) {
+      audioLogger.warn('stream-resolver', `Resolution exhausted, using previewUrl fallback for "${song.title}"`);
+      return song.previewUrl;
     }
 
     return null;
@@ -450,12 +490,13 @@ class StreamResolver {
   _isDirectPlayable(song) {
     if (!song.previewUrl) return false;
     const type = song.sourceType;
-    // Audius and local files have stable, permanent URLs
+    // Audius and local files have stable, permanent full URLs
     if (type === 'audius' || type === 'local') return true;
-    // Already resolved via JioSaavn/YouTube in a previous session or cache
-    if (song.ytResolved || song.isFull) return true;
-    // iTunes 30s preview URLs are stable
-    if (type === 'itunes' && song.previewUrl && !song.previewUrl.includes('youtube')) return true;
+    // JioSaavn tracks with full streams are direct playable
+    if (type === 'saavn' && song.isFull) return true;
+    // Already resolved via JioSaavn/YouTube
+    if ((song.ytResolved || song.isFull) && !song.previewUrl.includes('mzstatic') && !song.previewUrl.includes('apple.com')) return true;
+    // iTunes 30s preview URLs MUST NOT bypass resolution — they must resolve to full tracks via Saavn/YouTube
     return false;
   }
 

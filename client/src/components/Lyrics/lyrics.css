@@ -1,0 +1,360 @@
+/* =============================================================================
+   Auralis — Lyrics Panel Styles
+   lyrics.css
+
+   Scope: .lyrics-panel and all child selectors.
+   Does NOT override any existing Auralis CSS — all selectors are local.
+
+   Design principles:
+     - Glassmorphism and theming remain consistent with Auralis design language
+     - Transitions use opacity + transform (GPU-composited, zero layout thrash)
+     - Scrollbar hidden for a clean Spotify-like look
+     - Reduced motion respected via @media (prefers-reduced-motion)
+     - Mobile first: lyrics fill remaining height below controls
+   ============================================================================= */
+
+/* ─── Panel wrapper ──────────────────────────────────────────────────────────
+   A flex column that fills all available vertical space between WaveformProgress
+   and the transport controls. min-height:0 is required for flex children to
+   shrink correctly inside a flex container.
+   --------------------------------------------------------------------------- */
+.lyrics-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  /* Subtle separator lines, matching Auralis line token */
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ─── Panel header (divider + "Lyrics" label) ────────────────────────────── */
+.lyrics-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 6px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.lyrics-panel-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+/* ─── Top / Bottom fade vignettes ────────────────────────────────────────── */
+.lyrics-panel::before,
+.lyrics-panel::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 52px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Fade top */
+.lyrics-panel::before {
+  top: 30px; /* below header */
+  background: linear-gradient(
+    to bottom,
+    var(--lyrics-fade-start, rgba(15, 18, 16, 0.95)),
+    transparent
+  );
+}
+
+/* Fade bottom */
+.lyrics-panel::after {
+  bottom: 0;
+  background: linear-gradient(
+    to top,
+    var(--lyrics-fade-start, rgba(15, 18, 16, 0.95)),
+    transparent
+  );
+}
+
+/* ─── Scrollable lyrics container ────────────────────────────────────────── */
+.lyrics-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 16px 8px;
+  /* Hide scrollbar across browsers */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Smooth momentum scroll on iOS */
+  -webkit-overflow-scrolling: touch;
+  /* Prevent touch scroll from propagating to the panel */
+  overscroll-behavior: contain;
+}
+
+.lyrics-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Centered variant: for loading / empty states */
+.lyrics-scroll--centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Top / Bottom padding blocks inside scroll ──────────────────────────── */
+/* These allow the first and last lines to scroll to the center of the container */
+.lyrics-scroll-pad {
+  height: 50%;
+  min-height: 48px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* ─── Single lyric line ──────────────────────────────────────────────────── */
+.lyrics-line {
+  /* Reset button styles */
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+
+  /* Spacing between lines */
+  padding: 8px 4px;
+
+  /* Color base — overridden by inline style on active */
+  color: rgba(255, 255, 255, 0.85);
+
+  /* GPU-composited transitions — NO layout properties animated */
+  transition:
+    opacity   280ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    color     280ms ease;
+
+  transform-origin: left center;
+
+  /* Prevent text selection on click */
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Ensure smooth rendering */
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lyrics-line:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Remove focus ring from mouse clicks — only for keyboard */
+.lyrics-line:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.lyrics-line-text {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  word-break: break-word;
+  /* Prevent layout shift from weight changes */
+  font-variation-settings: 'wght' var(--lyr-weight, 400);
+}
+
+/* Active line: larger text, accent color set via inline style */
+.lyrics-line--active .lyrics-line-text {
+  font-size: 1.08rem;
+}
+
+/* Spacer line for empty/blank timestamps */
+.lyrics-line--spacer {
+  height: 14px;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* ─── Empty state ────────────────────────────────────────────────────────── */
+.lyrics-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 20px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  min-height: 120px;
+}
+
+.lyrics-empty-icon {
+  width: 44px;
+  height: 44px;
+  color: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.lyrics-empty-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.02em;
+}
+
+.lyrics-empty-sub {
+  margin: 0;
+  font-size: 0.76rem;
+  color: rgba(255, 255, 255, 0.27);
+  line-height: 1.5;
+  max-width: 200px;
+}
+
+/* ─── Skeleton loading state ─────────────────────────────────────────────── */
+.lyrics-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 16px;
+  width: 100%;
+}
+
+.lyrics-skeleton-bar {
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  animation: lyrics-shimmer 1.6s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.lyrics-skeleton-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 40%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.12) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: lyrics-shimmer-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes lyrics-shimmer {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1.0; }
+}
+
+@keyframes lyrics-shimmer-slide {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Screen-reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ─── Themed panel support (inherits from .now-panel--themed) ───────────── */
+/* When the album theme context is active, the panel background already provides
+   the gradient. We soften the fade vignette to match the dynamic background. */
+.now-panel--themed .lyrics-panel::before {
+  background: linear-gradient(
+    to bottom,
+    var(--theme-fade, rgba(10, 14, 12, 0.95)),
+    transparent
+  );
+}
+
+.now-panel--themed .lyrics-panel::after {
+  background: linear-gradient(
+    to top,
+    var(--theme-fade, rgba(10, 14, 12, 0.95)),
+    transparent
+  );
+}
+
+.now-panel--themed .lyrics-panel {
+  border-top-color: rgba(255, 255, 255, 0.06);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.now-panel--themed .lyrics-line {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ─── Reduced motion: disable transitions, keep instant state changes ─────── */
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-line {
+    transition: opacity 80ms ease, color 80ms ease;
+    transform: none !important;
+    will-change: auto;
+  }
+
+  .lyrics-line--active .lyrics-line-text {
+    transform: none;
+  }
+
+  .lyrics-skeleton-bar,
+  .lyrics-skeleton-bar::after {
+    animation: none;
+  }
+}
+
+/* ─── Mobile overrides ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .lyrics-line {
+    padding: 10px 4px;
+  }
+
+  .lyrics-line-text {
+    font-size: 1.0rem;
+  }
+
+  .lyrics-line--active .lyrics-line-text {
+    font-size: 1.12rem;
+  }
+
+  .lyrics-scroll {
+    padding: 4px 8px 8px;
+  }
+}
+
+/* ─── High contrast mode ─────────────────────────────────────────────────── */
+@media (forced-colors: active) {
+  .lyrics-line {
+    forced-color-adjust: auto;
+  }
+
+  .lyrics-panel::before,
+  .lyrics-panel::after {
+    display: none;
+  }
+}

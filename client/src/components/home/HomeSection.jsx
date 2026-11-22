@@ -24,21 +24,21 @@ export function HomeSection({
         <div>
           {kicker && (
             <p className="text-xs font-semibold uppercase tracking-widest mb-1"
-              style={{ color: 'var(--muted)' }}>
+              style={{ color: 'var(--muted, #75877C)' }}>
               {kicker}
             </p>
           )}
-          <h2 className="text-xl font-bold text-white leading-tight">{title}</h2>
+          <h2 className="text-xl font-bold leading-tight" style={{ color: 'var(--text, #F5F8F6)' }}>{title}</h2>
         </div>
-        {onShowAll && (
-          <button
-            onClick={onShowAll}
-            className="text-xs font-semibold uppercase tracking-widest transition-colors hover:text-white"
-            style={{ color: 'var(--muted)' }}
-          >
-            Show all
-          </button>
-        )}
+        <button
+          onClick={onShowAll || (() => {})}
+          className="text-xs font-semibold transition-colors flex items-center gap-1"
+          style={{ color: 'var(--muted, #A7B5AC)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.82rem' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text, #F5F8F6)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--muted, #A7B5AC)'; }}
+        >
+          See All &gt;
+        </button>
       </div>
 
       {/* Horizontally scrollable row (becomes grid on mobile) */}

@@ -12,11 +12,11 @@ import { Library }       from './pages/Library/Library';
 import { Preferences }   from './Preferences';
 import { SvgSprite }     from './components/Icons';
 
-const NOW_MIN  = 240;   // px — right panel minimum width
+const NOW_MIN  = 260;   // px — right panel minimum width
 const NOW_MAX  = 520;   // px — right panel maximum width
-const NOW_DEF  = 320;   // px — default right panel width
-const NAV_FULL = 186;   // px — sidebar expanded width
-const NAV_COLL = 62;    // px — sidebar collapsed (icon-only) width
+const NOW_DEF  = 340;   // px — default right panel width
+const NAV_FULL = 240;   // px — sidebar expanded width
+const NAV_COLL = 72;    // px — sidebar collapsed (icon-only) width
 
 export function AppShell() {
   const { view, showPrefs, setShowPrefs, prefs, setPrefs, navigateBack } = useApp();
@@ -126,11 +126,16 @@ export function AppShell() {
       </div>
 
       {/* ── Preferences modal overlay ── */}
-      {showPrefs && (
+      {(showPrefs || view === 'settings') && (
         <Preferences
           prefs={prefs}
           setPrefs={setPrefs}
-          onClose={() => setShowPrefs(false)}
+          onClose={() => {
+            setShowPrefs(false);
+            if (view === 'settings') {
+              navigateBack();
+            }
+          }}
         />
       )}
 

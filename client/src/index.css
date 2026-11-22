@@ -1,25 +1,31 @@
 :root {
   color-scheme: dark;
-  --accent: #67f0b7;
-  --accent-rgb: 103 240 183;
-  --bg-a: #101111;
-  --bg-b: #181316;
-  --bg-c: #10201a;
-  --text: #f5f7ef;
-  --muted: #a9b1aa;
-  --soft: #dfe6de;
-  --panel-rgb: 18 20 20;
-  --panel-strong-rgb: 24 26 26;
-  --line: rgba(255, 255, 255, 0.13);
-  --line-strong: rgba(255, 255, 255, 0.2);
-  --shadow: 0 22px 80px rgba(0, 0, 0, 0.38);
-  --glass-opacity: 0.42;
+  /* Emerald Midnight palette */
+  --accent: #39E89A;
+  --accent-rgb: 57 232 154;
+  --accent-secondary: #20C982;
+  --bg-a: #06100D;
+  --bg-b: #0A1712;
+  --bg-c: #07110E;
+  --bg-card: #10221A;
+  --bg-elevated: #142920;
+  --text: #F5F8F6;
+  --muted: #A7B5AC;
+  --soft: #E8F0EB;
+  --text-muted: #75877C;
+  --panel-rgb: 10 23 18;
+  --panel-strong-rgb: 20 41 32;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --shadow: 0 22px 80px rgba(0, 0, 0, 0.5);
+  --glass-opacity: 0.45;
   --glass-blur: 26px;
-  --radius: 8px;
+  --radius: 10px;
+  --radius-lg: 16px;
   --row-height: 66px;
-  --nav-width: 260px;
-  --now-width: 360px;
-  --player-height: 96px;
+  --nav-width: 220px;
+  --now-width: 320px;
+  --player-height: 80px;
 }
 
 body[data-theme="light"] {
@@ -871,25 +877,27 @@ body:not(.is-playing) .meter-bar {
 .player {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(210px, 0.8fr) minmax(360px, 1.3fr) minmax(180px, 0.7fr);
+  grid-template-columns: minmax(240px, 1fr) minmax(420px, 2fr) minmax(240px, 1fr);
   align-items: center;
-  gap: 20px;
-  padding: 14px 18px;
+  gap: 24px;
+  padding: 0 24px;
+  height: var(--player-height, 86px);
+  box-sizing: border-box;
 }
 
-.mini-now,
-.volume-zone {
+.mini-now {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  justify-self: start;
 }
 
 .mini-cover {
-  width: 56px;
-  height: 56px;
-  flex: 0 0 56px;
-  border-radius: 10px !important;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 8px !important;
   overflow: hidden;
   box-shadow:
     0 4px 16px rgba(0,0,0,0.55),
@@ -934,24 +942,37 @@ body:not(.is-playing) .meter-bar {
 }
 
 .transport {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  justify-self: center;
 }
 
 .transport-buttons {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
+  height: 38px;
 }
 
 .play-button {
-  width: 50px;
-  height: 50px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
   border-radius: 50%;
   color: #101111;
   background: var(--accent);
   border-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   will-change: transform, box-shadow;
   transition:
     transform 220ms cubic-bezier(0.22,1,0.36,1),
@@ -969,13 +990,21 @@ body:not(.is-playing) .meter-bar {
 }
 
 .progress-line {
-  display: grid;
-  grid-template-columns: 46px 1fr 46px;
+  display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--muted);
-  font-size: 0.82rem;
+  width: 100%;
+  max-width: 480px;
+  color: rgba(255,255,255,0.6);
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.progress-line span {
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 input[type="range"] {
@@ -984,11 +1013,16 @@ input[type="range"] {
 }
 
 .volume-zone {
+  min-width: 0;
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 14px;
+  justify-self: end;
 }
 
 .volume-zone input {
-  max-width: 148px;
+  max-width: 100px;
 }
 
 .preferences-panel {
@@ -1917,13 +1951,13 @@ body[data-reduced-motion="true"] *::after {
    --------------------------------------------------------------- */
 
 :root {
-  --glass-bg:        rgba(10, 12, 14, 0.60);
-  --glass-border:    rgba(255, 255, 255, 0.09);
+  --glass-bg:        rgba(6, 16, 13, 0.75);
+  --glass-border:    rgba(255, 255, 255, 0.08);
   --glass-blur-deep: 40px;
-  --glass-glow:      0 0 0 1px rgba(255,255,255,0.06), 0 28px 60px rgba(0,0,0,0.55), 0 0 120px rgba(var(--accent-rgb)/0.06);
-  --sidebar-glass:   rgba(8, 10, 12, 0.72);
-  --card-glass:      rgba(20, 24, 28, 0.50);
-  --panel-glass:     rgba(14, 16, 20, 0.65);
+  --glass-glow:      0 0 0 1px rgba(255,255,255,0.05), 0 28px 60px rgba(0,0,0,0.60), 0 0 120px rgba(57,232,154,0.05);
+  --sidebar-glass:   rgba(7, 17, 14, 0.85);
+  --card-glass:      rgba(16, 34, 26, 0.65);
+  --panel-glass:     rgba(10, 23, 18, 0.80);
   --input-glass:     rgba(255,255,255,0.04);
 }
 
@@ -3236,26 +3270,32 @@ body[data-reduced-motion="true"] *::after {
    BOTTOM NAV  Always visible (all screen sizes, Spotify-style)
    --------------------------------------------------------------- */
 
-/* App shell: add bottom-nav row on desktop too */
-.app-shell {
-  grid-template-rows: minmax(0, 1fr) var(--player-height) auto !important;
+/* App shell on desktop (>= 1024px) */
+@media (min-width: 1024px) {
+  .app-shell {
+    grid-template-rows: minmax(0, 1fr) var(--player-height) !important;
+  }
+  .player {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+  }
+  .bottom-nav {
+    display: none !important;
+  }
 }
 
-/* Player spans only main+now columns (sidebar takes its own space) */
-.player {
-  grid-column: 2 / -1 !important;
-}
-
-/* Bottom nav spans ALL columns */
-.bottom-nav {
-  grid-column: 1 / -1 !important;
-  grid-row: 3 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  background: rgba(10, 12, 16, 0.97) !important;
-  border-top: 1px solid rgba(255,255,255,0.07) !important;
-  backdrop-filter: blur(40px) !important;
-  z-index: 20 !important;
+/* Mobile bottom nav (< 1024px) */
+@media (max-width: 1023px) {
+  .bottom-nav {
+    grid-column: 1 / -1 !important;
+    grid-row: 3 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: rgba(10, 12, 16, 0.97) !important;
+    border-top: 1px solid rgba(255,255,255,0.07) !important;
+    backdrop-filter: blur(40px) !important;
+    z-index: 20 !important;
+  }
 }
 
 /* Mini-player card (Spotify-style warm brownish card) */
@@ -3373,7 +3413,7 @@ body[data-reduced-motion="true"] *::after {
   color: rgba(255,255,255,0.8);
 }
 .bottom-nav-tab--active {
-  color: #fff !important;
+  color: var(--em-accent, #39E89A) !important;
 }
 
 .bottom-nav-icon {
@@ -3386,7 +3426,7 @@ body[data-reduced-motion="true"] *::after {
   white-space: nowrap;
 }
 
-/* Indicator line on active tab */
+/* Indicator dot on active tab */
 .bottom-nav-tab--active .bottom-nav-label {
   position: relative;
 }
@@ -3396,7 +3436,7 @@ body[data-reduced-motion="true"] *::after {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--em-accent, #39E89A);
   margin: 3px auto 0;
 }
 
@@ -7691,6 +7731,13 @@ html, body, #root {
 
 /* ── Icon buttons inside player bar: glass hover ─────────────── */
 .player .icon-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   border-radius: 50%;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.07);
@@ -7700,6 +7747,11 @@ html, body, #root {
     border-color 180ms ease,
     color 180ms ease,
     transform 180ms cubic-bezier(0.22,1,0.36,1) !important;
+}
+
+.player .icon-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .player .icon-button:hover {
@@ -8160,4 +8212,846 @@ body[data-theme="light"] .trending-skeleton {
   width: min(260px, 80%);
   aspect-ratio: 1 / 1;
   border-radius: 16px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LYRICS PANEL LAYOUT — NowPlaying integration  (v2 — cascade-safe)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Root cause of v1 failure:
+     .now-panel has overflow:auto (line ~744) which means it sizes to fit its
+     content, making the panel taller than the grid cell.  height:100% on a
+     child of an overflow:auto parent resolves to the scroll-content height,
+     not the visible-cell height — so the lyrics panel never got a bounded
+     height and therefore collapsed to 0.
+
+   Fix:
+     1. Give .now-panel overflow:hidden !important so the grid cell bounds it.
+     2. Give .spotify-now--with-lyrics flex:1; min-height:0 so it fills the
+        now-panel flex column (now-panel is already display:flex flex-direction:column).
+     3. Give .lyrics-panel flex:1; min-height:0 inside spotify-now.
+     4. All non-lyrics siblings get flex-shrink:0 so only lyrics section grows.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Step 1: Constrain the now-panel when lyrics are mounted ────────────── */
+/* Uses :has() for progressive enhancement — falls back gracefully on older browsers */
+.now-panel:has(.spotify-now--with-lyrics) {
+  overflow: hidden !important;
+  /* Ensure the panel does not scroll itself — inner lyrics container scrolls */
+}
+
+/* Fallback for browsers without :has() support: class added by JS if needed.
+   The JS fallback is not needed here because we rely on the grid cell bounds
+   and the flex chain below. */
+
+/* ── Step 2: .spotify-now--with-lyrics fills the constrained now-panel ─── */
+.spotify-now--with-lyrics {
+  /* Fill the now-panel flex column */
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  /* Prevent the container itself from scrolling */
+  overflow: hidden !important;
+  /* Slightly tighter gap to give lyrics more room */
+  gap: 10px !important;
+  padding-bottom: 14px !important;
+}
+
+/* ── Step 3: Non-lyrics siblings must not stretch ────────────────────────── */
+/* artwork, info row, waveform, controls, volume, meta — all fixed-size */
+.spotify-now--with-lyrics > *:not(.lyrics-panel) {
+  flex-shrink: 0 !important;
+  min-height: 0 !important;
+}
+
+/* ── Step 4: Album art — cap height so lyrics get space ─────────────────── */
+/* The art wrapper must not grow taller than 34% of the panel */
+.spotify-now--with-lyrics .spotify-now-art-wrapper {
+  max-height: 34% !important;
+}
+
+.spotify-now--with-lyrics .spotify-now-art {
+  width: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+}
+
+/* ── Step 5: Lyrics panel grows to fill all remaining space ─────────────── */
+/* .lyrics-panel has flex:1; min-height:0 in lyrics.css — this reinforces it */
+.spotify-now--with-lyrics .lyrics-panel {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  /* Ensure a visible minimum so the panel is always rendered */
+  min-height: 120px !important;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+/* On mobile the .now-panel is position:fixed full-screen (defined elsewhere
+   with !important). The .spotify-now already has flex:1 overflow-y:auto.
+   We need lyrics to fill remaining space after the static content. */
+@media (max-width: 768px) {
+  /* Mobile now-panel: already overflow:hidden !important from the mobile block.
+     Nothing to override there. */
+
+  /* spotify-now on mobile has overflow-y:auto — restore that and let it scroll */
+  .spotify-now--with-lyrics {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    flex: 1 1 0 !important;
+  }
+
+  /* On mobile the lyrics panel does NOT need to fill space via flex —
+     it just stacks naturally and shows a fixed height region. */
+  .spotify-now--with-lyrics .lyrics-panel {
+    flex: none !important;
+    min-height: 200px !important;
+    max-height: 52vh !important;
+    overflow: hidden !important;
+  }
+}
+
+
+/* ================================================================
+   SPOTIFY NOW PLAYING — EXTENDED CARDS
+   Secondary Controls · Lyrics Preview · About Artist · Credits · Explore
+   ================================================================ */
+
+/* ── Undo desktop height-cap rules that conflict with card layout ─ */
+.spotify-now--with-lyrics {
+  overflow: visible !important;
+  height: auto !important;
+}
+.spotify-now--with-lyrics > .lyrics-panel {
+  flex: none !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.spotify-now--with-lyrics .spotify-now-art-wrapper {
+  max-height: none !important;
+}
+.spotify-now--with-lyrics .spotify-now-art {
+  max-height: none !important;
+}
+
+/* Desktop panel: scroll the aside itself */
+.now-panel {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* Mobile: .spotify-now scrolls, lyrics panel is natural height */
+@media (max-width: 768px) {
+  .spotify-now--with-lyrics {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    flex: 1 1 0 !important;
+  }
+  .spotify-now--with-lyrics .lyrics-panel {
+    flex: none !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: hidden !important;
+  }
+}
+
+/* ================================================================
+   6. SECONDARY CONTROLS ROW
+   ================================================================ */
+.snp-sec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  gap: 4px;
+}
+.snp-sec-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 150ms ease, background 150ms ease, transform 120ms ease;
+  flex-shrink: 0;
+}
+.snp-sec-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+  transform: scale(1.05);
+}
+.snp-sec-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.snp-sec-btn--active {
+  color: #1db954 !important;
+}
+.snp-sec-btn--active::after {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #1db954;
+}
+
+/* Shuffle / repeat active dot on transport controls */
+.spotify-ctrl-dot {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+}
+.spotify-ctrl-btn {
+  position: relative;
+}
+
+/* ================================================================
+   7. LYRICS PREVIEW CARD
+   ================================================================ */
+.snp-lyrics-card {
+  position: relative;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  overflow: hidden;
+  padding: 20px 20px 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: background 200ms ease;
+  will-change: transform;
+}
+.snp-lyrics-card:hover {
+  background: rgba(255,255,255,0.08);
+}
+.snp-lyrics-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.snp-lyrics-card-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: rgba(255,255,255,0.55);
+}
+.snp-lyrics-card-hint {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.snp-lyrics-preview-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 56px;
+}
+.snp-lyrics-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+.snp-lyrics-line {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.4;
+  transition: color 250ms ease;
+}
+.snp-lyrics-line--active {
+  font-size: 1.12rem;
+  color: rgba(255,255,255,0.95) !important;
+}
+.snp-lyrics-fade {
+  position: absolute;
+  bottom: 52px;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(to bottom, transparent 0%, rgba(16,18,22,0.85) 100%);
+  pointer-events: none;
+  border-radius: 0 0 12px 12px;
+}
+.snp-lyrics-unavailable {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.35);
+  padding: 8px 0;
+  flex: 1;
+}
+.snp-show-lyrics-btn {
+  position: relative;
+  z-index: 2;
+  align-self: flex-start;
+  margin: 0 0 18px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
+  white-space: nowrap;
+}
+.snp-show-lyrics-btn:hover {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.45);
+  transform: scale(1.03);
+}
+.snp-show-lyrics-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.snp-show-lyrics-btn--collapse {
+  margin-top: 4px;
+  align-self: center;
+}
+.snp-lyrics-expanded {
+  flex: 1;
+  min-height: 280px;
+  max-height: 52vh;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+/* ================================================================
+   8. ABOUT ARTIST CARD
+   ================================================================ */
+.snp-artist-card {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 220px;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  will-change: transform;
+  animation: snp-card-in 400ms cubic-bezier(0.22,1,0.36,1) both;
+  animation-delay: 80ms;
+}
+.snp-artist-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.snp-artist-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  filter: blur(2px) brightness(0.7);
+  transform: scale(1.08);
+  transition: transform 500ms ease, filter 500ms ease;
+}
+.snp-artist-card:hover .snp-artist-bg {
+  transform: scale(1.12);
+  filter: blur(2px) brightness(0.62);
+}
+.snp-artist-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.20) 60%, transparent 100%),
+    linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 40%);
+  pointer-events: none;
+}
+.snp-artist-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  height: 100%;
+  min-height: 220px;
+}
+.snp-artist-top {
+  display: flex;
+  align-items: center;
+}
+.snp-artist-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.55);
+}
+.snp-artist-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
+.snp-artist-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.2);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.snp-artist-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.snp-artist-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.snp-artist-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.snp-artist-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.snp-artist-verified {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1da1f2;
+  color: #fff;
+}
+.snp-artist-listeners {
+  margin: 0;
+  font-size: 0.74rem;
+  color: rgba(255,255,255,0.60);
+}
+.snp-artist-follow-btn {
+  flex-shrink: 0;
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: transparent;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
+}
+.snp-artist-follow-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.6);
+  transform: scale(1.03);
+}
+.snp-artist-follow-btn--following {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.75);
+}
+.snp-artist-bio {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.60);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ================================================================
+   9. CREDITS CARD
+   ================================================================ */
+.snp-credits-card {
+  border-radius: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  overflow: hidden;
+  animation: snp-card-in 450ms cubic-bezier(0.22,1,0.36,1) both;
+  animation-delay: 140ms;
+}
+.snp-credits-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 18px 10px;
+}
+.snp-credits-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+.snp-credits-showall {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 150ms ease;
+}
+.snp-credits-showall:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+.snp-credits-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px;
+}
+.snp-credit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  transition: background 150ms ease;
+}
+.snp-credit-row:hover {
+  background: rgba(255,255,255,0.04);
+}
+.snp-credit-row--last {
+  border-bottom: none;
+}
+.snp-credit-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.snp-credit-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.snp-credit-role {
+  font-size: 0.74rem;
+  color: rgba(255,255,255,0.50);
+}
+.snp-credit-follow-btn {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.28);
+  background: transparent;
+  color: rgba(255,255,255,0.85);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+.snp-credit-follow-btn:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.50);
+  color: #fff;
+}
+.snp-credit-follow-btn--following {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.60);
+}
+
+/* ================================================================
+   10. EXPLORE ARTIST SECTION
+   ================================================================ */
+.snp-explore-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: snp-card-in 500ms cubic-bezier(0.22,1,0.36,1) both;
+  animation-delay: 200ms;
+  padding-bottom: 8px;
+}
+.snp-explore-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+.snp-explore-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.snp-explore-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+}
+.snp-explore-scroll::-webkit-scrollbar { display: none; }
+.snp-explore-card {
+  flex: 0 0 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  scroll-snap-align: start;
+  border-radius: 10px;
+  padding: 4px;
+  transition: transform 180ms ease, background 180ms ease;
+  outline: none;
+}
+.snp-explore-card:hover {
+  background: rgba(255,255,255,0.06);
+  transform: translateY(-2px);
+}
+.snp-explore-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.snp-explore-art {
+  width: 132px;
+  height: 132px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  position: relative;
+}
+.snp-explore-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 300ms ease;
+}
+.snp-explore-card:hover .snp-explore-art img {
+  transform: scale(1.06);
+}
+.snp-explore-art-fallback {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(29,185,84,0.18), #1a1a2e);
+}
+.snp-explore-label {
+  margin: 0;
+  font-size: 0.80rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 132px;
+  line-height: 1.3;
+}
+.snp-explore-sub {
+  margin: 0;
+  font-size: 0.70rem;
+  color: rgba(255,255,255,0.50);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 132px;
+}
+
+/* ================================================================
+   ENTRY ANIMATION (shared by cards)
+   ================================================================ */
+@keyframes snp-card-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+/* ================================================================
+   DESKTOP SIDEBAR  (≥ 769px)
+   ================================================================ */
+@media (min-width: 769px) {
+  .spotify-now-art {
+    border-radius: 16px;
+    box-shadow:
+      0 20px 60px rgba(0,0,0,0.65),
+      0 4px 12px rgba(0,0,0,0.40),
+      0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .spotify-now-title { font-size: 1.05rem; }
+
+  .snp-explore-card  { flex: 0 0 120px; }
+  .snp-explore-art   { width: 112px; height: 112px; }
+  .snp-explore-label,
+  .snp-explore-sub   { width: 112px; }
+
+  .snp-credits-header { padding: 16px 16px 8px; }
+  .snp-credit-row     { padding: 9px 16px; }
+}
+
+/* ================================================================
+   MOBILE  (≤ 768px)
+   ================================================================ */
+@media (max-width: 768px) {
+  /* artwork: 70-75% width, centred */
+  .spotify-now-art-wrapper {
+    width: min(74vw, 320px) !important;
+    margin: 0 auto !important;
+  }
+
+  /* secondary controls */
+  .snp-sec-row { justify-content: space-around; padding: 4px 0; }
+  .snp-sec-btn { width: 48px; height: 48px; }
+
+  /* lyrics card */
+  .snp-lyrics-card  { border-radius: 16px; min-height: 240px; padding: 20px 20px 0; }
+  .snp-lyrics-line  { font-size: 1.1rem; }
+  .snp-lyrics-line--active { font-size: 1.18rem; }
+  .snp-show-lyrics-btn { padding: 10px 24px; font-size: 0.85rem; min-height: 44px; }
+  .snp-lyrics-expanded  { max-height: 55vh; min-height: 300px; }
+
+  /* artist card */
+  .snp-artist-card { min-height: 260px; border-radius: 16px; }
+  .snp-artist-follow-btn { padding: 9px 20px; min-height: 40px; }
+
+  /* credits */
+  .snp-credits-card { border-radius: 16px; }
+  .snp-credit-row { padding: 12px 18px; min-height: 56px; }
+  .snp-credit-follow-btn { padding: 7px 16px; min-height: 36px; }
+
+  /* explore */
+  .snp-explore-card  { flex: 0 0 150px; }
+  .snp-explore-art   { width: 142px; height: 142px; }
+  .snp-explore-label,
+  .snp-explore-sub   { width: 142px; }
+}
+
+/* ================================================================
+   REDUCED MOTION
+   ================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .snp-lyrics-card,
+  .snp-artist-card,
+  .snp-credits-card,
+  .snp-explore-section,
+  .snp-artist-bg {
+    animation: none !important;
+    transition: none !important;
+  }
+  .snp-explore-card:hover .snp-explore-art img { transform: none !important; }
+  .snp-artist-card:hover .snp-artist-bg        { transform: scale(1.08) !important; }
+}
+
+
+/* =========================================================
+   HOME V3 — GREETING SECTION
+   ========================================================= */
+.home-v3 .greeting-section {
+  padding: 28px 0 16px;
+}
+.home-v3 .greeting-h1 {
+  margin: 0 0 4px;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+}
+.home-v3 .greeting-sub {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--muted);
+}
+@media (max-width: 768px) {
+  .home-v3 .greeting-h1 { font-size: 1.75rem; }
+  .home-v3 .greeting-sub { font-size: 0.9rem; }
+}
+
+/* =========================================================
+   NOW PLAYING PANEL — DESKTOP TABS
+   ========================================================= */
+.now-panel-desktop-tabs {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  width: 100%;
+}
+.now-panel-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #75877C);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px 8px;
+  position: relative;
+  transition: color 0.18s ease;
+}
+.now-panel-tab:hover {
+  color: var(--text-primary, #F5F8F6);
+}
+.now-panel-tab--active {
+  color: var(--text-primary, #F5F8F6);
+}
+.now-panel-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent, #39E89A);
+  border-radius: 2px;
+}
+@media (min-width: 1024px) {
+  .now-panel-mobile-header { display: none !important; }
+  .bottom-nav { display: none !important; }
+}
+@media (max-width: 1023px) {
+  .now-panel-desktop-tabs { display: none !important; }
+  .player { display: none !important; }
 }

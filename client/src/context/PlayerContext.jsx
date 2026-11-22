@@ -25,6 +25,7 @@ import { audioEngine }       from '../audio/AudioEngine';
 import { playbackEngine }    from '../audio/PlaybackEngine';
 import { queueEngine }       from '../audio/QueueEngine';
 import { sessionPersistence } from '../audio/SessionPersistence';
+import { audioLogger }       from '../audio/AudioLogger';
 import { usePlayerStore }    from '../store/playerStore';
 import { useApp }            from './AppContext';
 import { api }               from '../services/api';
@@ -194,11 +195,28 @@ export function PlayerProvider({ children }) {
 
   // ── Queue actions (delegate to PlaybackEngine) ───────────────────────────────
   const addToQueue = useCallback((track) => {
+    audioLogger.info('[integration]', `PlayerContext.addToQueue("${track?.title}")`);
     playbackEngine.addToQueue(track);
   }, []);
 
   const clearQueue = useCallback(() => {
+    audioLogger.info('[integration]', 'PlayerContext.clearQueue()');
     playbackEngine.clearQueue();
+  }, []);
+
+  const removeFromQueue = useCallback((index) => {
+    audioLogger.info('[integration]', `PlayerContext.removeFromQueue(${index})`);
+    playbackEngine.removeFromQueue(index);
+  }, []);
+
+  const moveQueueItem = useCallback((from, to) => {
+    audioLogger.info('[integration]', `PlayerContext.moveQueueItem(${from} -> ${to})`);
+    playbackEngine.moveQueueItem(from, to);
+  }, []);
+
+  const jumpToIndex = useCallback((index) => {
+    audioLogger.info('[integration]', `PlayerContext.jumpToIndex(${index})`);
+    playbackEngine.jumpToQueueIndex(index);
   }, []);
 
   // ── Sync shuffle/repeat to PlaybackEngine ────────────────────────────────────
@@ -303,6 +321,9 @@ export function PlayerProvider({ children }) {
     queue,
     addToQueue,
     clearQueue,
+    removeFromQueue,
+    moveQueueItem,
+    jumpToIndex,
   };
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

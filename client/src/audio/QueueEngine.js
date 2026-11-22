@@ -342,6 +342,29 @@ class QueueEngine {
     audioLogger.log(PlaybackEvent.QUEUE_REORDERED, `Moved queue item ${fromIndex} → ${toIndex}`);
   }
 
+  /**
+   * Jump directly to a track in the active queue by index, setting queueIndex
+   * and returning the song object. Called by PlaybackEngine.jumpToQueueIndex().
+   *
+   * Does NOT start playback — the caller is responsible for calling playSong().
+   *
+   * @param {number} index - Zero-based index into activeQueue
+   * @returns {Object|null} The song at that index, or null if out-of-range
+   */
+  jumpToIndex(index) {
+    const store  = usePlayerStore.getState();
+    const tracks = store.activeQueue;
+
+    if (!tracks.length || index < 0 || index >= tracks.length) {
+      audioLogger.warn('queue-engine', `jumpToIndex(${index}): out of range (queue length: ${tracks.length})`);
+      return null;
+    }
+
+    store.setQueueIndex(index);
+    audioLogger.info(PlaybackEvent.QUEUE_UPDATED, `Queue index jumped to ${index} ("${tracks[index]?.title}")`);
+    return tracks[index];
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Song tracking — called by PlaybackEngine after each successful play
   // ═══════════════════════════════════════════════════════════════════════════

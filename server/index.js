@@ -80,6 +80,25 @@ app.use((req, res, next) => {
 // "?"? DB-ready flag (set after mongoose.connect succeeds) "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
 let dbReady = false;
 
+// ── Health / Liveness & Readiness endpoints (Public, Zero-auth, Zero-DB overhead) ──
+// Liveness: returns 200 as long as the Node.js process is active
+const handleLiveness = (_req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+};
+app.get('/healthz', handleLiveness);
+app.get('/api/healthz', handleLiveness);
+
+// Readiness: returns 200 when MongoDB is connected, 503 when connecting/degraded
+const handleReadiness = (_req, res) => {
+  if (dbReady) {
+    return res.status(200).json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
+  }
+  return res.status(503).json({ status: 'degraded', db: 'connecting', timestamp: new Date().toISOString() });
+};
+app.get('/readyz', handleReadiness);
+app.get('/api/readyz', handleReadiness);
+
+
 // Routes that need MongoDB ?" return 503 until connected
 const DB_ROUTES = ['/api/bootstrap', '/api/playlists', '/api/tracks', '/api/history',
   '/api/favorites', '/api/library', '/api/preferences', '/api/excluded', '/api/auth'];
@@ -730,6 +749,94 @@ async function fetchItunes(term, language, limit = 25) {
   return tracks;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JioSaavn Search — Primary full-length 320kbps music catalog
+// ─────────────────────────────────────────────────────────────────────────────
+function cleanHtmlEntities(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
+function normJioTrack(item, language) {
+  const enc = item.more_info?.encrypted_media_url;
+  const streamUrl = enc ? decryptSaavnUrl(enc) : "";
+  const id = `saavn-${item.id}`;
+  const title = cleanHtmlEntities(item.title || "Untitled");
+
+  let artist = item.subtitle || "";
+  if (!artist && item.more_info?.artistMap?.primary_artists?.length) {
+    artist = item.more_info.artistMap.primary_artists.map(a => a.name).join(", ");
+  }
+  if (!artist && item.more_info?.music) {
+    artist = item.more_info.music;
+  }
+  artist = cleanHtmlEntities(artist || "Unknown");
+
+  const album = cleanHtmlEntities(item.more_info?.album || item.album || "Single");
+  const duration = parseInt(item.more_info?.duration, 10) || 180;
+  const image = (item.image || "")
+    .replace("150x150", "500x500")
+    .replace("50x50", "500x500")
+    .replace("http://", "https://");
+
+  return {
+    id,
+    title,
+    artist,
+    album,
+    duration,
+    genre: item.language ? (item.language.charAt(0).toUpperCase() + item.language.slice(1)) : "Music",
+    language: item.language || language || "all",
+    isFull: Boolean(streamUrl),
+    ytResolved: Boolean(streamUrl),
+    sourceType: "saavn",
+    previewUrl: streamUrl,
+    streamUrl: streamUrl,
+    artworkUrl: image,
+    lyrics: item.more_info?.has_lyrics === "true" ? ["Lyrics available"] : [],
+    _dedupKey: `${canonicalTitle(title)}|${firstArtist(artist)}`,
+  };
+}
+
+const SAAVN_SEARCH_CACHE = new Map();
+
+async function fetchJioSaavn(term, language, limit = 25) {
+  const cacheKey = `jio:${term}:${language}`;
+  if (SAAVN_SEARCH_CACHE.has(cacheKey)) return SAAVN_SEARCH_CACHE.get(cacheKey);
+
+  try {
+    const q = encodeURIComponent(term);
+    const n = Math.min(limit, 30);
+    const url = `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${q}&n=${n}&p=1&_format=json&_marker=0&api_version=4`;
+    const text = await jioFetchText(url, 8000);
+    const data = parseJioJson(text);
+    const results = data?.results || [];
+
+    const tracks = results
+      .filter(item => item && (item.type === "song" || !item.type) && item.title)
+      .map(item => normJioTrack(item, language));
+
+    if (tracks.length > 0) {
+      SAAVN_SEARCH_CACHE.set(cacheKey, tracks);
+      if (SAAVN_SEARCH_CACHE.size > 300) {
+        SAAVN_SEARCH_CACHE.delete(SAAVN_SEARCH_CACHE.keys().next().value);
+      }
+    }
+    return tracks;
+  } catch (err) {
+    console.warn(`[Saavn Search] Error fetching "${term}":`, err.message);
+    return [];
+  }
+}
+
 async function fetchItunesMultiSeed(seeds, language, limit) {
   const picked = seeds.slice(0, 6);   // 6 seeds A- up to 25 tracks = 150 candidates
   const batches = await Promise.allSettled(
@@ -1263,9 +1370,19 @@ app.get("/api/external/search", wrap(async (req, res) => {
     ];
   }
 
-  const itunesTracks = term
-    ? await fetchItunes(term, rawLang, limit * 2)
-    : await fetchItunesMultiSeed(seeds, rawLang, limit * 2);
+  let primaryTracks = [];
+  if (term) {
+    // Primary search via JioSaavn — full 320kbps streams, correct track metadata & duration
+    primaryTracks = await fetchJioSaavn(term, rawLang, limit * 2);
+    // If JioSaavn returned fewer results, augment with iTunes catalog
+    if (primaryTracks.length < limit) {
+      const itunesTracks = await fetchItunes(term, rawLang, limit * 2);
+      primaryTracks = [...primaryTracks, ...itunesTracks];
+    }
+  } else {
+    // Discovery/Seed search: multi-seed iTunes catalog
+    primaryTracks = await fetchItunesMultiSeed(seeds, rawLang, limit * 2);
+  }
 
   let audiusTracks = [];
   if (rawLang === "english" || rawLang === "all") {
@@ -1286,7 +1403,7 @@ app.get("/api/external/search", wrap(async (req, res) => {
     return true;
   });
   // Strip internal _dedupKey before sending to client
-  const tracks = [...dedup(itunesTracks), ...dedup(audiusTracks)]
+  const tracks = [...dedup(primaryTracks), ...dedup(audiusTracks)]
     .slice(0, limit * 2)
     .map(({ _dedupKey, ...t }) => t);
 
@@ -1349,17 +1466,42 @@ app.post("/api/tracks", wrap(async (req, res) => {
 // PATCH /api/preferences — merge partial updates (volume, language, shuffle, repeat, theme…)
 app.patch("/api/preferences", requireAuth, wrap(async (req, res) => {
   const user = await getUserByAuthId(req.userId);
-  // Merge only known/safe keys
+
+  // All keys the client is permitted to write.
+  // Keep this list in sync with client/src/Preferences.jsx and AppContext.setPrefs().
   const allowed = [
-    "theme", "accent", "glass", "crossfade", "quality", "suggestions",
-    "autoplay", "gapless", "normalize", "private", "reducedMotion",
-    "compact", "volume", "language", "shuffle", "repeat",
+    // Appearance
+    "theme", "accent", "glass", "compact", "reducedMotion",
+    // Playback behaviour
+    "autoplay", "gapless", "crossfade", "normalize", "mono", "broadcast",
+    "playbackSpeed",
+    // Quality / data
+    "streamQuality", "dataSaver", "downloadCellular", "audioOnlyDownload",
+    // Equalizer bands (5-band + 2 extra UI bands → stored as-is)
+    "eq_0", "eq_1", "eq_2", "eq_3", "eq_4", "eq_5", "eq_6",
+    // Privacy / social
+    "publicPlaylists", "playlistsOnProfile", "playlistPrivate",
+    "showFollowers", "showPlaylists", "showRecent",
+    "shareActivity", "friendActivity",
+    // Misc legacy keys
+    "volume", "language", "shuffle", "repeat",
+    "suggestions", "private", "quality",
   ];
+
+  let changed = 0;
   for (const k of allowed) {
-    if (req.body[k] !== undefined) user.preferences[k] = req.body[k];
+    if (req.body[k] !== undefined) {
+      user.preferences[k] = req.body[k];
+      changed++;
+    }
   }
-  user.markModified("preferences");
-  await user.save();
+
+  if (changed > 0) {
+    user.markModified("preferences");
+    await user.save();
+    console.log(`[preferences] saved ${changed} key(s) for user ${req.userId}`);
+  }
+
   res.json({ preferences: user.preferences });
 }));
 

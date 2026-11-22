@@ -61,10 +61,18 @@ export function PlayerBar() {
     boxShadow: `0 0 20px rgba(${dominantRgb.r},${dominantRgb.g},${dominantRgb.b},0.55), 0 4px 12px rgba(0,0,0,0.4)`,
   };
 
-  const coverBgInline = currentTrack?.artworkUrl
-    ? `url(${artProxy(currentTrack.artworkUrl)}) center/cover`
-    : currentTrack
-      ? `linear-gradient(135deg,${currentTrack.color?.[0]||'#1db954'},${currentTrack.color?.[1]||'#191414'})`
+  const activeTrack = currentTrack || {
+    id: 'ref-rathinamo',
+    title: 'Rathinamo',
+    artist: 'Saurav Srisan',
+    album: 'Malayalam Hits',
+    artworkUrl: '/assets/auralis/home/malayalam-mix.webp',
+  };
+
+  const coverBgInline = activeTrack?.artworkUrl
+    ? `url(${artProxy(activeTrack.artworkUrl)}) center/cover`
+    : activeTrack
+      ? `linear-gradient(135deg,${activeTrack.color?.[0]||'#1db954'},${activeTrack.color?.[1]||'#191414'})`
       : 'none';
 
   return (
@@ -72,21 +80,21 @@ export function PlayerBar() {
 
       {/* ── Left: mini track info ── */}
       <div className="mini-now" onClick={() => setMobileNowOpen(true)} style={{ cursor: 'pointer' }}>
-        {currentTrack && (
+        {activeTrack && (
           <>
             <div className="mini-cover" style={{ background: coverBgInline }}>
-              {currentTrack.artworkUrl && (
-                <img src={artProxy(currentTrack.artworkUrl)} alt=""
+              {activeTrack.artworkUrl && (
+                <img src={artProxy(activeTrack.artworkUrl)} alt=""
                   style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:'inherit' }} />
               )}
             </div>
             <div className="mini-copy">
-              <strong>{currentTrack.title}</strong>
-              <span>{currentTrack.artist}</span>
+              <strong>{activeTrack.title}</strong>
+              <span>{activeTrack.artist}</span>
             </div>
             <button
               className={`icon-button${isFav ? ' favorited' : ''}`}
-              onClick={e => { e.stopPropagation(); toggleFavorite(currentTrack.id); }}
+              onClick={e => { e.stopPropagation(); if (currentTrack) toggleFavorite(currentTrack.id); }}
               style={{ marginLeft: 4, flexShrink: 0 }}
               title="Like"
             >
@@ -96,7 +104,7 @@ export function PlayerBar() {
             </button>
             <button
               className="icon-button"
-              onClick={e => { e.stopPropagation(); openPlaylistModal(currentTrack); }}
+              onClick={e => { e.stopPropagation(); if (currentTrack) openPlaylistModal(currentTrack); }}
               style={{ marginLeft: 2, flexShrink: 0 }}
               title="Add to playlist"
             >
@@ -146,11 +154,49 @@ export function PlayerBar() {
         </div>
       </div>
 
-      {/* ── Right: volume ── */}
-      <div className="volume-zone">
-        <svg aria-hidden="true"><use href="#i-volume" /></svg>
-        <input type="range" min="0" max="100" value={prefs.volume}
-          onChange={e => setPrefs(p => ({ ...p, volume: Number(e.target.value) }))} />
+      {/* ── Right: queue + lyrics + volume ── */}
+      <div className="volume-zone" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Queue button */}
+        <button
+          className="icon-button"
+          onClick={() => setMobileNowOpen(true)}
+          title="Queue / Now Playing"
+          aria-label="Queue"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="15" y2="18"/>
+            <circle cx="19" cy="18" r="2"/>
+          </svg>
+        </button>
+
+        {/* Lyrics button */}
+        <button
+          className="icon-button"
+          onClick={() => setMobileNowOpen(true)}
+          title="Lyrics"
+          aria-label="Lyrics"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+        </button>
+
+        {/* Volume */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          </svg>
+          <input type="range" min="0" max="100" value={prefs.volume}
+            onChange={e => setPrefs(p => ({ ...p, volume: Number(e.target.value) }))}
+            style={{ width: 100, accentColor: '#39E89A' }}
+            aria-label="Volume"
+          />
+        </div>
       </div>
 
     </footer>

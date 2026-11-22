@@ -5,6 +5,14 @@
   "outputDirectory": "client/dist",
   "rewrites": [
     {
+      "source": "/healthz",
+      "destination": "https://auralis-music-player-ta1r.onrender.com/healthz"
+    },
+    {
+      "source": "/readyz",
+      "destination": "https://auralis-music-player-ta1r.onrender.com/readyz"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://auralis-music-player-ta1r.onrender.com/api/:path*"
     }

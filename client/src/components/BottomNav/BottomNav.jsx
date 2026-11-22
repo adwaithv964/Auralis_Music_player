@@ -5,13 +5,13 @@ import { artProxy }      from '../../utils/audioHelpers';
 import { useSwipeSheet } from '../../hooks/useSwipeSheet';
 
 /**
- * BottomNav
+ * BottomNav — Auralis Emerald Midnight redesign
  * Mobile-only bottom bar with:
  *  - Compact mini-player strip (tap → full Now Playing sheet)
- *  - Three navigation tabs: Home, Search, Your Library
+ *  - Four navigation tabs: Home, Search, Library, You
  */
 export function BottomNav() {
-  const { view, navigateTo, setMobileNowOpen, mobileNowOpen, setShowPrefs } = useApp();
+  const { view, navigateTo, setMobileNowOpen, mobileNowOpen, setMobileNavOpen, showPrefs, setShowPrefs } = useApp();
   const {
     currentTrack,
     isPlaying,
@@ -36,7 +36,6 @@ export function BottomNav() {
   const handleHomeTap = () => {
     const now = Date.now();
     if (view === 'home' && now - lastHomeTapRef.current < 300) {
-      // Double-tap on Home while already on Home → scroll to top
       const mainArea = document.querySelector('.main-area');
       if (mainArea) {
         mainArea.scrollTo({ top: 0, behavior: 'smooth' });
@@ -49,53 +48,68 @@ export function BottomNav() {
     lastHomeTapRef.current = now;
   };
 
-  const coverBgInline = currentTrack?.artworkUrl
-    ? `url(${artProxy(currentTrack.artworkUrl)}) center/cover`
-    : currentTrack
-      ? `linear-gradient(135deg,${currentTrack.color?.[0]||'#1db954'},${currentTrack.color?.[1]||'#191414'})`
+  const activeTrack = currentTrack || {
+    id: 'ref-rathinamo',
+    title: 'Rathinamo',
+    artist: 'Saurav Srisan',
+    artworkUrl: '/assets/auralis/home/malayalam-mix.webp',
+  };
+
+  const coverBgInline = activeTrack?.artworkUrl
+    ? `url(${artProxy(activeTrack.artworkUrl)}) center/cover`
+    : activeTrack
+      ? `linear-gradient(135deg,${activeTrack.color?.[0] || '#1db954'},${activeTrack.color?.[1] || '#191414'})`
       : 'none';
 
+  // ── Tab definitions ──────────────────────────────────────────
   const TABS = [
     {
       id: 'home', label: 'Home',
       icon: (
-        <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26">
-          <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+          <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
         </svg>
       ),
+      action: handleHomeTap,
     },
     {
       id: 'search', label: 'Search',
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="26" height="26">
-          <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="24" height="24">
+          <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.35-4.35" strokeLinecap="round" />
         </svg>
       ),
+      action: () => navigateTo('search'),
     },
     {
-      id: 'library', label: 'Your Library',
+      id: 'library', label: 'Library',
       icon: (
-        <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26">
-          <path d="M3 6h2v12H3zm4-2h2v16H7zm4 4h2v12h-2zm4-6h2v18h-2zm4 2h2v14h-2z"/>
+        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+          <path d="M3 6h2v12H3zm4-2h2v16H7zm4 4h2v12h-2zm4-6h2v18h-2zm4 2h2v14h-2z" />
         </svg>
       ),
+      action: () => navigateTo('library'),
     },
     {
       id: 'settings', label: 'Settings',
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="26" height="26">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ),
+      action: () => {
+        setShowPrefs(true);
+        navigateTo('settings');
+      },
     },
   ];
 
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
 
-      {/* ── Mini-player strip (visible when a track is loaded) ── */}
-      {currentTrack && (
+      {/* ── Mini-player strip (always visible per reference design) ── */}
+      {activeTrack && (
         <div
           className="bmp-strip"
           ref={swipeRef}
@@ -110,23 +124,23 @@ export function BottomNav() {
           <div className="bmp-strip-inner">
             {/* Album art */}
             <div className="bmp-strip-art" style={{ background: coverBgInline }}>
-              {currentTrack.artworkUrl && (
-                <img src={artProxy(currentTrack.artworkUrl)} alt=""
-                  style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:'inherit' }} />
+              {activeTrack.artworkUrl && (
+                <img src={artProxy(activeTrack.artworkUrl)} alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
               )}
             </div>
 
             {/* Track text */}
             <div className="bmp-strip-text">
-              <strong>{currentTrack.title}</strong>
-              <span>{currentTrack.artist}</span>
+              <strong>{activeTrack.title}</strong>
+              <span>{activeTrack.artist}</span>
             </div>
 
-            {/* Heart + Play */}
+            {/* Heart + Play + Queue */}
             <div className="bmp-strip-btns">
               <button
                 className={`bmp-icon-btn${isFav ? ' bmp-icon-btn--active' : ''}`}
-                onClick={e => { e.stopPropagation(); toggleFavorite(currentTrack.id); }}
+                onClick={e => { e.stopPropagation(); if (currentTrack) toggleFavorite(currentTrack.id); }}
                 title={isFav ? 'Saved' : 'Save'}
               >
                 <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" width="22" height="22">
@@ -140,8 +154,23 @@ export function BottomNav() {
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26">
                   {isPlaying
-                    ? <><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></>
-                    : <path d="M8 5.5v13l11-6.5-11-6.5Z"/>}
+                    ? <><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>
+                    : <path d="M8 5.5v13l11-6.5-11-6.5Z" />}
+                </svg>
+              </button>
+              <button
+                className="bmp-icon-btn bmp-queue"
+                onClick={e => { e.stopPropagation(); setMobileNowOpen(true); }}
+                title="Queue"
+                style={{ color: 'var(--em-text-sub, #A7B5AC)' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="8" y1="6" x2="21" y2="6" strokeLinecap="round" />
+                  <line x1="8" y1="12" x2="21" y2="12" strokeLinecap="round" />
+                  <line x1="8" y1="18" x2="21" y2="18" strokeLinecap="round" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" strokeWidth="3" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" strokeLinecap="round" strokeWidth="3" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" strokeLinecap="round" strokeWidth="3" />
                 </svg>
               </button>
             </div>
@@ -151,22 +180,20 @@ export function BottomNav() {
 
       {/* ── Tab bar ── */}
       <div className="bottom-nav-tabs">
-        {TABS.map(({ id, label, icon }) => (
-          <button
-            key={id}
-            className={`bottom-nav-tab${view === id ? ' bottom-nav-tab--active' : ''}`}
-            onClick={
-              id === 'settings'
-                ? () => setShowPrefs(true)
-                : id === 'home'
-                  ? handleHomeTap
-                  : () => navigateTo(id)
-            }
-          >
-            <span className="bottom-nav-icon">{icon}</span>
-            <span className="bottom-nav-label">{label}</span>
-          </button>
-        ))}
+        {TABS.map(({ id, label, icon, action }) => {
+          const active = id === 'settings' ? (showPrefs || view === 'settings') : (!showPrefs && view === id);
+          return (
+            <button
+              key={id}
+              className={`bottom-nav-tab${active ? ' bottom-nav-tab--active' : ''}`}
+              onClick={action}
+              style={active ? { '--tab-accent': 'var(--accent, #39E89A)' } : undefined}
+            >
+              <span className="bottom-nav-icon">{icon}</span>
+              <span className="bottom-nav-label">{label}</span>
+            </button>
+          );
+        })}
       </div>
 
     </nav>

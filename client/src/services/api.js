@@ -17,9 +17,10 @@
  */
 
 // ── Token store (module-level, never persisted to localStorage) ────────────
-let _token       = null;
-let _refreshFn   = null; // () => Promise<string> — injected by AuthContext
-let _onLogout    = null; // () => void            — injected by AuthContext
+let _token                = null;
+let _refreshFn            = null; // () => Promise<string> — injected by AuthContext
+let _onLogout             = null; // () => void            — injected by AuthContext
+let _pendingRefreshPromise = null; // Promise deduplicator for concurrent 401 refreshes
 
 /** Called by AuthContext to wire in the current token + refresh callback */
 export function setApiToken(token, refreshFn, onLogout) {
@@ -34,8 +35,9 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 /**
  * authFetch — wraps fetch with:
  *  1. Authorization: Bearer <token> header
- *  2. On 401: silent token refresh + one retry
- *  3. On second 401: logout and throw
+ *  2. 20s timeout safeguard
+ *  3. On 401: deduplicated silent token refresh + one retry
+ *  4. On second 401: logout and throw
  */
 async function authFetch(url, options = {}, retry = true) {
   const headers = {
@@ -45,16 +47,35 @@ async function authFetch(url, options = {}, retry = true) {
   };
   const body = options.json ? JSON.stringify(options.json) : options.body;
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    body,
-    credentials: 'include', // always send cookies (for refresh)
-  });
+  const ctrl = new AbortController();
+  const timeoutMs = options.timeout || 20000;
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  if (options.signal) {
+    options.signal.addEventListener('abort', () => ctrl.abort());
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+      body,
+      credentials: 'include', // always send cookies (for refresh)
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (res.status === 401 && retry && _refreshFn) {
     try {
-      const newToken = await _refreshFn();
+      if (!_pendingRefreshPromise) {
+        _pendingRefreshPromise = _refreshFn().finally(() => {
+          _pendingRefreshPromise = null;
+        });
+      }
+      const newToken = await _pendingRefreshPromise;
       _token = newToken;
       // Retry original request with new token
       return authFetch(url, options, false);
@@ -120,6 +141,14 @@ export const api = {
 
   // ── Preferences persistence ─────────────────────────────────────────────────
   async updatePreferences(prefs) {
+    // Skip the call during the bootstrap window before the token is available.
+    // AppContext may debounce a preference save while AuthContext is still
+    // doing its silent-refresh — without this guard the request goes out
+    // with no Authorization header and the server returns 401.
+    if (!_token) {
+      console.log('[api] updatePreferences skipped — token not yet available');
+      return { preferences: prefs }; // optimistic no-op
+    }
     const res = await authFetch('/api/preferences', {
       method: 'PATCH',
       json:   prefs,

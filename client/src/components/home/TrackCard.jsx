@@ -24,7 +24,7 @@ export function TrackCard({ track, isActive, isResolving, onPlay, index = 0 }) {
 
   return (
     <motion.div
-      className="track-card-premium"
+      className={`track-card-premium${isActive ? ' track-card-premium--active' : ''}`}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3, delay: Math.min(index * 0.04, 0.5) }}

@@ -1,13 +1,14 @@
+import './home.css';
 import { useCallback, useRef, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApp }    from '../../context/AppContext';
 import { usePlayer } from '../../context/PlayerContext';
+import { useAuth }   from '../../context/AuthContext';
 import { api }       from '../../services/api';
 import { trackHasAudio, isFullSong } from '../../utils/audioHelpers';
 import { LANGUAGES, MOODS } from '../../utils/constants';
 
-// New premium components
-import { GreetingHero }       from '../../components/home/GreetingHero';
+// Existing components
 import { HomeSection }        from '../../components/home/HomeSection';
 import { TrackCard }          from '../../components/home/TrackCard';
 import { ArtistCard }         from '../../components/home/ArtistCard';
@@ -15,8 +16,12 @@ import { QuickAccessCard, MoodCard } from '../../components/home/QuickAccessCard
 import { SuggestionItem }     from '../../components/common/SuggestionItem';
 import { LangTabs }           from '../../components/common/LangTabs';
 import { TrendingCarousel }   from '../../components/home/TrendingCarousel';
-import { useTrendingSongs }   from '../../hooks/useTrendingSongs';
 import { SkeletonHomePage }   from '../../components/Skeleton/Skeleton';
+
+// New v3 components
+import { FeaturedPlaylistHero } from '../../components/home/FeaturedPlaylistHero';
+import { QuickAccessRow }       from '../../components/home/QuickAccessRow';
+import { MixCard }              from '../../components/home/MixCard';
 
 // ── Mood discovery definitions ───────────────────────────────
 const MOOD_CARDS = [
@@ -28,20 +33,46 @@ const MOOD_CARDS = [
   { id: 'devotional', label: 'Devotional', emoji: '🙏', gradient: 'linear-gradient(135deg,#ff7043,#bf360c)' },
 ];
 
+// Made For You mix definitions
+const MADE_FOR_YOU_MIXES = [
+  {
+    id: 'daily-mix-1',
+    title: 'Daily Mix 1',
+    description: 'Your top picks, freshly curated',
+    artworkSrc: '/assets/auralis/home/daily-mix-1.webp',
+  },
+  {
+    id: 'daily-mix-2',
+    title: 'Daily Mix 2',
+    description: 'Chill vibes for every mood',
+    artworkSrc: '/assets/auralis/home/daily-mix-2.webp',
+  },
+  {
+    id: 'malayalam-mix',
+    title: 'Malayalam Mix',
+    description: "Best of Kerala's melodies",
+    artworkSrc: '/assets/auralis/home/malayalam-mix.webp',
+  },
+  {
+    id: 'focus-mix',
+    title: 'Focus Mix',
+    description: 'Deep focus, zero distractions',
+    artworkSrc: '/assets/auralis/home/focus-mix.webp',
+  },
+];
+
+// ── Greeting helper ──────────────────────────────────────────
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 5)  return 'Good night';
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  if (h < 21) return 'Good evening';
+  return 'Good night';
+}
+
 /**
- * Home — Spotify-level redesigned home page
- *
- * Sections:
- *  1. Dynamic greeting
- *  2. Quick access grid (recently played)
- *  3. Continue Listening
- *  4. Mood discovery chips
- *  5. Trending Now
- *  6. New Releases  
- *  7. Made For You
- *  8. Popular Artists
- *  9. Based On Your Listening
- * 10. Load more / full grid
+ * Home — Auralis v3 Emerald Midnight home page
  */
 export function Home() {
   const {
@@ -55,11 +86,14 @@ export function Home() {
     localTracks,
     playHistory,
     favorites,
+    playlists,
   } = useApp();
 
   const {
     handlePlay, currentTrack, resolvingId, setActiveQueueAndPlay,
   } = usePlayer();
+
+  const { currentUser } = useAuth() || {};
 
   const debounceRef  = useRef(null);
   const [shuffleSeed, setShuffleSeed] = useState(() => Date.now());
@@ -75,8 +109,7 @@ export function Home() {
 
   const currentLang  = LANGUAGES.find(l => l.id === language);
 
-  // ── Seeded shuffle — deterministic per seed, random on refresh ──
-  // Fisher-Yates with LCG PRNG so every section gets different unique tracks
+  // ── Seeded shuffle ───────────────────────────────────────────
   const stablePool = useMemo(() => {
     function seededShuffle(arr, seed) {
       const a = [...arr];
@@ -91,49 +124,37 @@ export function Home() {
     return seededShuffle(indianSongs, shuffleSeed);
   }, [indianSongs, shuffleSeed]);
 
-  // Reversed pool — feels completely different from forward pool
   const reversedPool = useMemo(() => [...stablePool].reverse(), [stablePool]);
 
-  // Favorite IDs set for fast lookup
   const favoriteIds = useMemo(() => new Set(favorites), [favorites]);
 
   // ── Non-overlapping section allocations (10 tracks each) ─────
   const CHUNK = 10;
 
-  const continueListening = useMemo(
-    () => playHistory.slice(0, 10),
-    [playHistory]
-  );
+  const continueListening = useMemo(() => {
+    if (playHistory.length >= 5) return playHistory.slice(0, 10);
+    const histIds = new Set(playHistory.map(t => t.id));
+    const remainder = allPlayable.filter(t => !histIds.has(t.id));
+    return [...playHistory, ...remainder].slice(0, 10);
+  }, [playHistory, allPlayable]);
 
-  // Section 1: Trending — first chunk from stable pool
-  const trendingNow = useMemo(
-    () => stablePool.slice(0, CHUNK),
-    [stablePool]
-  );
+  const trendingNow = useMemo(() => stablePool.slice(0, CHUNK), [stablePool]);
 
-  // Section 2: New Releases — reversed pool chunk (feels fresh / different)
-  const newReleases = useMemo(
-    () => reversedPool.slice(0, CHUNK),
-    [reversedPool]
-  );
+  const newReleases = useMemo(() => reversedPool.slice(0, CHUNK), [reversedPool]);
 
-  // Section 3: Made For You — favorited tracks + pool[20..30] fallback
   const madeForYou = useMemo(() => {
-    const fav     = allPlayable.filter(t => favoriteIds.has(t.id));
-    const nonFav  = stablePool.filter(t => !favoriteIds.has(t.id));
-    // Fill remainder from pool chunk 2 (indices 20–29 of sorted non-fav)
-    const fill    = nonFav.slice(CHUNK * 2, CHUNK * 3);
+    const fav    = allPlayable.filter(t => favoriteIds.has(t.id));
+    const nonFav = stablePool.filter(t => !favoriteIds.has(t.id));
+    const fill   = nonFav.slice(CHUNK * 2, CHUNK * 3);
     return [...fav, ...fill].slice(0, CHUNK);
   }, [stablePool, allPlayable, favoriteIds]);
 
-  // Section 4: Based On Your Listening — artist-filtered or pool chunk 3
   const { basedOnListening, basedOnArtist } = useMemo(() => {
     if (playHistory.length > 0) {
       const topArtist = playHistory[0]?.artist?.split(/[,&]/)[0]?.trim() || '';
       if (topArtist) {
-        // Find songs from same artist NOT already in trending/new releases
-        const trendingIds  = new Set(trendingNow.map(t => t.id));
-        const newRelIds    = new Set(newReleases.map(t => t.id));
+        const trendingIds = new Set(trendingNow.map(t => t.id));
+        const newRelIds   = new Set(newReleases.map(t => t.id));
         const artistTracks = stablePool.filter(t =>
           !trendingIds.has(t.id) &&
           !newRelIds.has(t.id) &&
@@ -144,20 +165,17 @@ export function Home() {
         }
       }
     }
-    // Fallback: chunk 3 from stable pool (indices 30–39)
     return {
       basedOnListening: stablePool.slice(CHUNK * 3, CHUNK * 4),
       basedOnArtist: null,
     };
   }, [playHistory, stablePool, trendingNow, newReleases]);
 
-  // Section 5: Daily Mix — chunk 4, further diversified
   const dailyMix = useMemo(
     () => reversedPool.slice(CHUNK, CHUNK * 2),
     [reversedPool]
   );
 
-  // Popular artists — unique artist names (not from song lists above)
   const popularArtists = useMemo(() => {
     const seen = new Set();
     return indianSongs
@@ -176,12 +194,21 @@ export function Home() {
 
   const fullSongsSection = useMemo(() => fullSongs.slice(0, CHUNK), [fullSongs]);
 
-  // Quick access (uses play history — separate from discovery pools)
   const quickAccess = useMemo(() => {
-    const histIds = new Set(playHistory.map(t => t.id));
+    const histIds   = new Set(playHistory.map(t => t.id));
     const favTracks = allPlayable.filter(t => favoriteIds.has(t.id) && !histIds.has(t.id));
     return [...playHistory.slice(0, 4), ...favTracks.slice(0, 2)].slice(0, 6);
   }, [playHistory, allPlayable, favoriteIds]);
+
+  // ── Featured playlist — first playlist or static fallback ────
+  const featuredPlaylist = useMemo(() => {
+    if (playlists && playlists.length > 0) return playlists[0];
+    return {
+      name: 'Malayalam Hits',
+      description: "The best of Kerala's evergreen melodies",
+      songs: [],
+    };
+  }, [playlists]);
 
   // ── Search handlers ──────────────────────────────────────────
   const handleSearchChange = useCallback((e) => {
@@ -195,7 +222,6 @@ export function Home() {
         .slice(0, 3);
       try {
         const ext = await api.searchExternal(q, language, 0, mood);
-        // Deduplicate by ID so local + external can't produce duplicate keys
         const seen = new Set();
         const combined = [...local, ...(ext.tracks || []).filter(trackHasAudio).slice(0, 5)]
           .filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
@@ -212,7 +238,7 @@ export function Home() {
     setSearchQuery(track.title);
     navigateTo('search');
     setShowSuggestions(false);
-    handlePlay(track); // handlePlay directly — search page will set its own queue after load
+    handlePlay(track);
     doLoadExternal(language, mood, 0, track.title);
   }, [language, mood, handlePlay, doLoadExternal, setSearchQuery, navigateTo, setShowSuggestions]);
 
@@ -226,22 +252,85 @@ export function Home() {
   // ── Loading skeleton ─────────────────────────────────────────
   const isFirstLoad = isLoadingExt && extPlayable.length === 0;
 
+  // ── Greeting ─────────────────────────────────────────────────
+  const greeting = 'Good evening';
+
   return (
-    <div className="home-v2">
-      {/* ── Topbar ── */}
-      <header className="topbar">
-        <button className="mobile-menu-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="22" height="22">
-            <path d="M3 6h18M3 12h18M3 18h18" />
+    <div className="home-v3">
+      {/* ══════════════════════════════════════════════════════
+          MOBILE TOPBAR
+      ════════════════════════════════════════════════════════ */}
+      <header className="topbar-v3 mobile-topbar-v3" role="banner">
+        {/* Mobile hamburger */}
+        <button className="mobile-menu-btn-v3" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="20" height="20">
+            <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />
           </svg>
         </button>
 
-        <form className="search-box" onSubmit={handleSearchSubmit}>
+        {/* Brand */}
+        <div className="mobile-logo-v3" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+            <path d="M12 3v18M8 6v12M4 9v6M16 6v12M20 9v6" stroke="var(--em-accent, #39E89A)" strokeWidth="2.6" strokeLinecap="round" />
+          </svg>
+          <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#F5F8F6', letterSpacing: '-0.02em' }}>Auralis</span>
+        </div>
+
+        {/* Right actions: notification + avatar */}
+        <div className="mobile-topbar-actions-v3">
+          <button
+            className="topbar-icon-btn-v3"
+            aria-label="Notifications"
+            style={{ position: 'relative', background: 'none', border: 'none', color: 'var(--em-text-sub, #A7B5AC)' }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span style={{ position: 'absolute', top: 2, right: 2, width: 7, height: 7, borderRadius: '50%', background: 'var(--em-accent, #39E89A)' }} />
+          </button>
+
+          <div
+            className="mobile-user-avatar"
+            style={{
+              width: 30, height: 30, borderRadius: '50%',
+              background: 'var(--em-accent, #39E89A)',
+              color: '#06100D', fontWeight: 700, fontSize: '0.82rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+            onClick={() => setMobileNavOpen(true)}
+          >
+            {(currentUser?.username?.[0] || 'C').toUpperCase()}
+          </div>
+        </div>
+      </header>
+
+      {/* ══════════════════════════════════════════════════════
+          DESKTOP TOPBAR
+      ════════════════════════════════════════════════════════ */}
+      <header className="topbar-v3 desktop-topbar-v3" role="banner">
+        {/* Back / Forward — desktop nav helpers */}
+        <div className="topbar-v3__nav hidden-mobile">
+          <button className="topbar-v3__nav-btn" aria-label="Go back" onClick={() => window.history.back()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="18" height="18">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button className="topbar-v3__nav-btn" aria-label="Go forward" onClick={() => window.history.forward()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="18" height="18">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Search */}
+        <form className="search-box search-box-v3" onSubmit={handleSearchSubmit}>
           <svg aria-hidden="true"><use href="#i-search" /></svg>
           <input
             type="search"
             autoComplete="off"
-            placeholder={`Search ${currentLang?.label || ''} songs, artists…`}
+            placeholder="Search for songs, artists, albums, playlists…"
             value={searchQuery}
             onChange={handleSearchChange}
             onFocus={() => suggestions.length && setShowSuggestions(true)}
@@ -264,61 +353,181 @@ export function Home() {
           </AnimatePresence>
         </form>
 
-        <div className="topbar-actions">
-          <motion.button
-            className="ghost-button"
-            onClick={async () => {
-              setIsShuffling(true);
-              setShuffleSeed(Date.now()); // instantly re-shuffles all sections
-              await doLoadExternal(language, mood, extPage, ''); // also fetch fresh page
-              setIsShuffling(false);
+        {/* Desktop window / notification controls */}
+        <div className="topbar-v3__actions" style={{ display: 'flex', alignItems: 'center', gap: 14, marginLeft: 'auto' }}>
+          <button
+            className="topbar-icon-btn-v3 topbar-icon-btn-v3--notif"
+            aria-label="Notifications"
+            style={{
+              position: 'relative',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--em-text-sub, #A7B5AC)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 6,
             }}
-            animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
-            transition={{ duration: 0.6, ease: 'easeInOut' }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-              <path d="M8 16H3v5" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="19" height="19">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
-            <span>Shuffle</span>
-          </motion.button>
+            <span
+              style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: 'var(--em-accent, #39E89A)',
+              }}
+            />
+          </button>
+
+          <div
+            className="window-controls-v3"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              color: 'var(--em-text-muted, #75877C)',
+              marginLeft: 6,
+            }}
+          >
+            <button
+              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 2 }}
+              aria-label="Minimize"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><rect y="11" width="24" height="2" /></svg>
+            </button>
+            <button
+              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 2 }}
+              aria-label="Maximize"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
+            </button>
+            <button
+              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 2 }}
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* ── Language tabs ── */}
-      <LangTabs language={language} onChange={lang => { setLanguage(lang); setMood(''); }} />
-
       {/* ══════════════════════════════════════════════════════
-          GREETING HERO
+          INNER CONTENT
       ════════════════════════════════════════════════════════ */}
-      <div className="home-v2-inner">
-        <GreetingHero
-          currentTrack={currentTrack}
-          language={language}
-          mood={mood}
+      <div className="home-v3-inner">
+
+        {/* ── Greeting section ── */}
+        <motion.div
+          className="greeting-section"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.05 }}
+        >
+          <h1 className="greeting-section__title">{greeting}</h1>
+          <p className="greeting-section__sub">Discover, play and feel the music.</p>
+        </motion.div>
+
+        {/* ── Quick Access Row (5 cards) ── */}
+        <QuickAccessRow
+          navigateTo={navigateTo}
+          setActiveQueueAndPlay={setActiveQueueAndPlay}
+          allPlayable={allPlayable}
+          playHistory={playHistory}
+          favorites={favorites}
         />
 
-        {/* ── Quick Access 2×3 Grid (Spotify top grid) ── */}
-        {quickAccess.length > 0 && (
-          <motion.div
-            className="quick-access-grid"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.15 }}
-          >
-            {quickAccess.map((t, i) => (
-              <QuickAccessCard
-                key={t.id}
+        {/* ── Featured Playlist Hero ── */}
+        <FeaturedPlaylistHero
+          playlist={featuredPlaylist}
+          heroImage="/assets/auralis/home/auralis-hero-malayalam.webp"
+          onPlay={() => {
+            const songs = featuredPlaylist?.songs || allPlayable.slice(0, 20);
+            if (songs.length > 0) setActiveQueueAndPlay(songs, songs[0]);
+          }}
+          onFollow={() => {
+            // placeholder — could dispatch a follow action
+          }}
+        />
+
+        {/* ══════════════════════════════════════════════════════
+            SECTION 1: Continue Listening
+        ════════════════════════════════════════════════════════ */}
+        {continueListening.length > 0 && (
+          <HomeSection title="Continue Listening" kicker="🕒 Recently played" delay={0.1}>
+            {continueListening.map((t, i) => (
+              <TrackCard
+                key={`cl-${t.id}`}
                 track={t}
-                isActive={currentTrack?.id === t.id}
-                onPlay={(track) => setActiveQueueAndPlay(quickAccess, track)}
                 index={i}
+                isActive={currentTrack?.id === t.id}
+                isResolving={resolvingId === t.id}
+                onPlay={(track) => setActiveQueueAndPlay(continueListening, track)}
               />
             ))}
-          </motion.div>
+          </HomeSection>
         )}
+
+        {/* ══════════════════════════════════════════════════════
+            SECTION 2: Made for You Mixes (MixCard × 4)
+        ════════════════════════════════════════════════════════ */}
+        <motion.section
+          className="home-section-v3"
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-60px' }}
+          transition={{ duration: 0.45, delay: 0.12 }}
+        >
+          <div className="home-section-v3-header">
+            <div>
+              <h2 className="home-section-v3-title">Made for You</h2>
+            </div>
+            <button
+              onClick={() => {}}
+              className="home-section-v3-seeall"
+            >
+              See All &gt;
+            </button>
+          </div>
+          <div className="mix-cards-row">
+            {MADE_FOR_YOU_MIXES.map((mix, i) => (
+              <MixCard
+                key={mix.id}
+                title={mix.title}
+                description={mix.description}
+                artworkSrc={mix.artworkSrc}
+                index={i}
+                onPlay={() => {
+                  const pool = stablePool.slice(i * CHUNK, (i + 1) * CHUNK);
+                  if (pool.length > 0) setActiveQueueAndPlay(pool, pool[0]);
+                }}
+              />
+            ))}
+          </div>
+        </motion.section>
+
+        {/* ══════════════════════════════════════════════════════
+            SKELETON
+        ════════════════════════════════════════════════════════ */}
+        <AnimatePresence>
+          {isFirstLoad && (
+            <motion.div
+              key="home-skeleton"
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              <SkeletonHomePage />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Mood Discovery Chips ── */}
         <motion.div
@@ -345,46 +554,12 @@ export function Home() {
         </motion.div>
 
         {/* ══════════════════════════════════════════════════════
-            LOADING SKELETON
-        ════════════════════════════════════════════════════════ */}
-        <AnimatePresence>
-          {isFirstLoad && (
-            <motion.div
-              key="home-skeleton"
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-            >
-              <SkeletonHomePage />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ══════════════════════════════════════════════════════
-            SECTION 1: Continue Listening
-        ════════════════════════════════════════════════════════ */}
-        {continueListening.length > 0 && (
-          <HomeSection title="Continue Listening" kicker="🕒 Recently played" delay={0.1}>
-            {continueListening.map((t, i) => (
-              <TrackCard
-                key={`cl-${t.id}`}
-                track={t}
-                index={i}
-                isActive={currentTrack?.id === t.id}
-                isResolving={resolvingId === t.id}
-                onPlay={(track) => setActiveQueueAndPlay(continueListening, track)}
-              />
-            ))}
-          </HomeSection>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            SECTION 2: Real Trending Charts (Last.fm + iTunes + JioSaavn)
+            SECTION: Real Trending Charts
         ════════════════════════════════════════════════════════ */}
         <TrendingCarousel language={language} />
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 3: Mood Discovery Grid
+            SECTION: Browse by Mood
         ════════════════════════════════════════════════════════ */}
         <HomeSection title="Browse by Mood" kicker="🎨 Music for every moment" delay={0.2}>
           {MOOD_CARDS.map((mc, i) => (
@@ -400,7 +575,7 @@ export function Home() {
         </HomeSection>
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 4: New Releases  [reversedPool 0–9]
+            SECTION: New Releases
         ════════════════════════════════════════════════════════ */}
         {newReleases.length > 0 && (
           <HomeSection title="New Releases" kicker="🆕 Fresh drops" delay={0.25}>
@@ -416,7 +591,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 5: Made For You  [favorites + pool 20–29]
+            SECTION: Made For You (Tracks)
         ════════════════════════════════════════════════════════ */}
         {madeForYou.length > 0 && (
           <HomeSection title="Made For You" kicker="✨ Personalized picks" delay={0.3}>
@@ -432,7 +607,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 6: Popular Artists
+            SECTION: Popular Artists
         ════════════════════════════════════════════════════════ */}
         {popularArtists.length > 0 && (
           <HomeSection title="Popular Artists" kicker="🎤 Top talent" delay={0.35}>
@@ -449,7 +624,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 7: Because You Liked [Artist]  [pool 30–39]
+            SECTION: Because You Liked
         ════════════════════════════════════════════════════════ */}
         {basedOnListening.length > 0 && (
           <HomeSection
@@ -471,7 +646,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 8: Daily Mix  [reversedPool 10–19]
+            SECTION: Daily Mix
         ════════════════════════════════════════════════════════ */}
         {dailyMix.length > 0 && (
           <HomeSection
@@ -491,7 +666,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 9: Full Songs (Audius)
+            SECTION: Free Full Songs (Audius)
         ════════════════════════════════════════════════════════ */}
         {fullSongsSection.length > 0 && (
           <HomeSection
@@ -511,7 +686,7 @@ export function Home() {
         )}
 
         {/* ══════════════════════════════════════════════════════
-            SECTION 9: All Songs Grid (full browse)
+            SECTION: All Songs Full Grid
         ════════════════════════════════════════════════════════ */}
         {stablePool.length > 0 && (
           <motion.section
@@ -570,7 +745,7 @@ export function Home() {
           </motion.button>
         </div>
 
-      </div>{/* end home-v2-inner */}
+      </div>{/* end home-v3-inner */}
     </div>
   );
 }

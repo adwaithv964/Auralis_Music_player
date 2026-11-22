@@ -12,7 +12,7 @@ export function fmt(secs) {
  */
 export function artProxy(url) {
   if (!url) return '';
-  if (url.startsWith('/api/')) return url;
+  if (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')) return url;
 
   // These CDNs are public and accessible directly from browsers — no proxy needed.
   // Routing them through the server causes 500s because the CDN blocks server UA / IPs.
@@ -46,7 +46,7 @@ export const trackHasAudio = (t) =>
   !!(t?.title && t?.artist);          // has enough info to resolve
 
 /** True if the track is a full-length song (not a 30s preview) */
-export const isFullSong = (t) => t?.isFull === true || t?.sourceType === 'audius';
+export const isFullSong = (t) => t?.isFull === true || t?.sourceType === 'audius' || t?.sourceType === 'saavn';
 
 // ─── Cover background helper ──────────────────────────────────
 /**

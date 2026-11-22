@@ -232,6 +232,25 @@ export function Preferences({ prefs, setPrefs, onClose }) {
                 />
               </PrefSection>
 
+              <PrefSection title="Playback speed">
+                <p className="pref-section-desc">Change how fast or slow audio plays back.</p>
+                {[
+                  { value: 0.5,  label: '0.5×', desc: 'Half speed' },
+                  { value: 0.75, label: '0.75×', desc: 'Slow' },
+                  { value: 1.0,  label: '1×',   desc: 'Normal (default)' },
+                  { value: 1.25, label: '1.25×', desc: 'Slightly faster' },
+                  { value: 1.5,  label: '1.5×', desc: 'Fast' },
+                  { value: 2.0,  label: '2×',   desc: 'Double speed' },
+                ].map(opt => (
+                  <RadioOption key={opt.value}
+                    label={opt.label} desc={opt.desc} value={opt.value}
+                    selected={(prefs.playbackSpeed ?? 1.0) === opt.value}
+                    onChange={v => set('playbackSpeed', v)}
+                  />
+                ))}
+              </PrefSection>
+
+
               <PrefSection title="Equalizer">
                 <div className="pref-eq-info">
                   <span className="pref-row-icon" style={{ fontSize: '1.4rem' }}>🎚️</span>
@@ -424,6 +443,7 @@ export function Preferences({ prefs, setPrefs, onClose }) {
             theme: 'dark', accent: '#67f0b7', volume: 62,
             gapless: false, autoplay: true, mono: false, normalize: false,
             streamQuality: 'auto', publicPlaylists: true,
+            playbackSpeed: 1.0,
           })}>
             Reset to defaults
           </button>
