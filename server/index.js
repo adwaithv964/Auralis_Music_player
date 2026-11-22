@@ -80,7 +80,30 @@ app.use(cookieParser());
 
 // ── Health & Readiness Probes (Ultra-fast, zero DB overhead for Uptime Monitors) ─
 app.get(["/healthz", "/api/healthz"], (req, res) => {
-  res.status(200).json({ status: "ok", version: "parity-v4", timestamp: new Date().toISOString() });
+  res.status(200).json({ status: "ok", version: "parity-v5", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/probe", async (req, res) => {
+  const q = req.query.q || "operation mole";
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+  const headers = { 'User-Agent': userAgent, 'Accept': 'application/json', 'Cookie': 'geo=IN' };
+
+  const out = {};
+  try {
+    const r1 = await fetch(`https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&q=${encodeURIComponent(q)}&n=10&p=1&_format=json&_marker=0&api_version=4`, { headers });
+    out.albumStatus = r1.status;
+    const t1 = await r1.text();
+    out.albumRawSnippet = t1.substring(0, 300);
+  } catch (e) { out.albumError = e.message; }
+
+  try {
+    const r2 = await fetch(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(q)}&_format=json&_marker=0&ctx=wap6dot0`, { headers });
+    out.autoStatus = r2.status;
+    const t2 = await r2.text();
+    out.autoRawSnippet = t2.substring(0, 300);
+  } catch (e) { out.autoError = e.message; }
+
+  res.json(out);
 });
 
 app.get(["/readyz", "/api/readyz"], (req, res) => {
