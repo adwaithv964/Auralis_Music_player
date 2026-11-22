@@ -80,7 +80,54 @@ app.use(cookieParser());
 
 // ── Health & Readiness Probes (Ultra-fast, zero DB overhead for Uptime Monitors) ─
 app.get(["/healthz", "/api/healthz"], (req, res) => {
-  res.status(200).json({ status: "ok", version: "parity-v2", timestamp: new Date().toISOString() });
+  res.status(200).json({ status: "ok", version: "parity-v3", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/diagnostic/saavn-debug", async (req, res) => {
+  const q = req.query.q || "operation mole";
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+  
+  const tests = {};
+  
+  // Test 1: autocomplete.get
+  try {
+    const r1 = await fetch(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(q)}&_format=json&_marker=0&ctx=wap6dot0`, {
+      headers: { 'User-Agent': userAgent, Cookie: 'geo=IN' }
+    });
+    tests.autocomplete = await r1.json();
+  } catch (e) { tests.autocomplete = { error: e.message }; }
+
+  // Test 2: search.getResults standard
+  try {
+    const r2 = await fetch(`https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&n=5&p=1&_format=json&_marker=0&cc=in&api_version=4`, {
+      headers: { 'User-Agent': userAgent, Cookie: 'geo=IN' }
+    });
+    tests.searchStandard = await r2.json();
+  } catch (e) { tests.searchStandard = { error: e.message }; }
+
+  // Test 3: search.getResults with X-Forwarded-For
+  try {
+    const r3 = await fetch(`https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&n=5&p=1&_format=json&_marker=0&cc=in&api_version=4`, {
+      headers: {
+        'User-Agent': userAgent,
+        'Cookie': 'geo=IN',
+        'X-Forwarded-For': '49.37.0.1',
+        'CF-Connecting-IP': '49.37.0.1',
+        'Client-IP': '49.37.0.1'
+      }
+    });
+    tests.searchWithIndianIp = await r3.json();
+  } catch (e) { tests.searchWithIndianIp = { error: e.message }; }
+
+  // Test 4: search.getAlbumResults
+  try {
+    const r4 = await fetch(`https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&q=${encodeURIComponent(q)}&_format=json&_marker=0&n=5&p=1&cc=in&api_version=4`, {
+      headers: { 'User-Agent': userAgent, Cookie: 'geo=IN' }
+    });
+    tests.albumResults = await r4.json();
+  } catch (e) { tests.albumResults = { error: e.message }; }
+
+  res.json({ query: q, tests });
 });
 
 app.get(["/readyz", "/api/readyz"], (req, res) => {
