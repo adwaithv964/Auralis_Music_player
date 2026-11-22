@@ -1037,40 +1037,6 @@ app.get("/api/youtube/resolve", wrap(async (req, res) => {
   return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song", requestId: reqId });
 }));
 
-app.get("/api/debug/test-saavn", wrap(async (req, res) => {
-  const q = req.query.q || 'Veezha Veera';
-  const out = {};
-  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
-
-  try {
-    const r1 = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&N=5&p=1&_format=json&_marker=0`,
-      {
-        headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
-        signal: AbortSignal.timeout(6000),
-      }
-    );
-    out.searchGetResults = { status: r1.status, ok: r1.ok, text: (await r1.text()).slice(0, 300) };
-  } catch (e1) {
-    out.searchGetResults = { error: e1.message };
-  }
-
-  try {
-    const r2 = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(q)}&_format=json&_marker=0&ctx=wap6dot0`,
-      {
-        headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
-        signal: AbortSignal.timeout(6000),
-      }
-    );
-    out.autocomplete = { status: r2.status, ok: r2.ok, text: (await r2.text()).slice(0, 300) };
-  } catch (e2) {
-    out.autocomplete = { error: e2.message };
-  }
-
-  res.json(out);
-}));
-
 // ── Direct lookup by title+artist+album with strict verification ────────────
 app.get("/api/saavn/stream", wrap(async (req, res) => {
   const reqId = req.headers['x-request-id'] || req.query.requestId || Math.random().toString(36).slice(2, 8);
