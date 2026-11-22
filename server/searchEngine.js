@@ -402,7 +402,11 @@ async function searchSaavnTracks(query, language = 'malayalam') {
     const resp = await fetch(
       `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&n=20&p=1&_format=json&_marker=0`,
       {
-        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json', Cookie: 'geo=IN' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          Accept: 'application/json, text/plain, */*',
+          Cookie: 'geo=IN',
+        },
         signal: AbortSignal.timeout(8000),
       }
     );
@@ -457,27 +461,49 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
     cleanTitle,
   ].filter(Boolean).filter((q, i, a) => q && q.length > 2 && a.indexOf(q) === i);
 
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
   for (const q of queries) {
     try {
-      const resp = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&N=5&p=1&_format=json&_marker=0`,
-        {
-          headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json', Cookie: 'geo=IN' },
-          signal: AbortSignal.timeout(6000),
+      let ids = [];
+      try {
+        const resp = await fetch(
+          `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(q)}&N=5&p=1&_format=json&_marker=0`,
+          {
+            headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (resp.ok) {
+          const text = await resp.text();
+          const data = parseJioJson(text);
+          ids = (data?.results || []).map(r => r.id).filter(Boolean).slice(0, 5);
         }
-      );
-      if (!resp.ok) continue;
-      const text = await resp.text();
-      const data = parseJioJson(text);
-      const results = data?.results || [];
+      } catch (_) {}
 
-      const ids = results.map(r => r.id).filter(Boolean).slice(0, 5);
+      // Fallback: autocomplete if primary search returned no IDs
+      if (!ids.length) {
+        try {
+          const autoResp = await fetch(
+            `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(q)}&_format=json&_marker=0&ctx=wap6dot0`,
+            {
+              headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
+              signal: AbortSignal.timeout(6000),
+            }
+          );
+          if (autoResp.ok) {
+            const autoData = parseJioJson(await autoResp.text());
+            ids = (autoData?.songs?.data || []).map(s => s.id).filter(Boolean).slice(0, 5);
+          }
+        } catch (_) {}
+      }
+
       if (!ids.length) continue;
 
       const detResp = await fetch(
         `https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&api_version=4&pids=${ids.join(',')}`,
         {
-          headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json', Cookie: 'geo=IN' },
+          headers: { 'User-Agent': userAgent, Accept: 'application/json, text/plain, */*', Cookie: 'geo=IN' },
           signal: AbortSignal.timeout(6000),
         }
       );
