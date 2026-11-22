@@ -10,10 +10,22 @@ const SAAVN_DES_KEY = Array.from(Buffer.from('38346591'));
 
 // ── 1. Text Normalization & Transliteration Helpers ─────────────────────────
 
+/** Decodes common HTML entities */
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&quot;/gi, '"')
+    .replace(/&#039;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
 /** Strip punctuation, extra whitespace, diacritics, and normalize */
 function normalizeText(str) {
   if (!str) return '';
-  return str
+  return decodeHtmlEntities(str)
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '') // remove diacritics
@@ -204,6 +216,19 @@ function scoreCandidate(track, parsedQuery) {
 
 // ── 5. Strict Metadata-to-Audio Match Verifier ──────────────────────────────
 
+const KNOWN_LANGUAGES = ['hindi', 'telugu', 'tamil', 'malayalam', 'kannada', 'bengali', 'marathi', 'punjabi', 'bhojpuri', 'gujarati'];
+
+function extractLanguageModifiers(text) {
+  if (!text) return new Set();
+  const norm = normalizeText(text);
+  const words = new Set(norm.split(' '));
+  const found = new Set();
+  for (const lang of KNOWN_LANGUAGES) {
+    if (words.has(lang)) found.add(lang);
+  }
+  return found;
+}
+
 /**
  * Validates that an audio resolution candidate (e.g. from JioSaavn or YouTube)
  * actually represents the exact song requested by the user.
@@ -213,11 +238,36 @@ function scoreCandidate(track, parsedQuery) {
 function verifyTrackMatch(targetTitle, targetArtist = '', targetAlbum = '', candidate = {}) {
   if (!candidate) return false;
 
-  const candidateTitle = candidate.title || candidate.song || '';
-  const candidateArtist = candidate.artist || candidate.primary_artists || candidate.channel || '';
-  const candidateAlbum = candidate.album || '';
+  const candidateTitle = decodeHtmlEntities(candidate.title || candidate.song || '');
+  const candidateArtist = decodeHtmlEntities(candidate.artist || candidate.primary_artists || candidate.channel || '');
+  const candidateAlbum = decodeHtmlEntities(candidate.album || '');
 
   if (!candidateTitle) return false;
+
+  // 0. Language / Dubbed Modifier Check
+  // Prevent dubbed versions (e.g. "- Hindi" or "- Telugu") from matching original OST,
+  // and ensure target language requirements are respected.
+  const targetLangs = extractLanguageModifiers(`${targetTitle} ${targetAlbum}`);
+  const candLangs = extractLanguageModifiers(`${candidateTitle} ${candidateAlbum}`);
+
+  if (targetLangs.size > 0) {
+    // Target explicitly requested language (e.g. "Veera Veera (From 'O.M: Operation Mole - Telugu')")
+    // Candidate MUST contain at least one of target languages if candidate specifies language modifiers
+    let hasOverlap = false;
+    for (const tl of targetLangs) {
+      if (candLangs.has(tl)) { hasOverlap = true; break; }
+    }
+    if (!hasOverlap && candLangs.size > 0) {
+      // Candidate specifies a different language than requested
+      return false;
+    }
+  } else {
+    // Target did NOT specify a language modifier (original release)
+    // If candidate has an explicit language modifier like "hindi", "telugu" etc., reject dubbed candidate
+    if (candLangs.size > 0) {
+      return false;
+    }
+  }
 
   // 1. Title Similarity Check
   const titleSim = computeSimilarity(targetTitle, candidateTitle);
@@ -364,9 +414,9 @@ async function searchSaavnTracks(query, language = 'malayalam') {
       const streamUrl = item.encrypted_media_url ? decryptSaavnUrl(item.encrypted_media_url) : '';
       return {
         id: `saavn-${item.id}`,
-        title: item.song?.replace(/&quot;/g, '"')?.replace(/&#039;/g, "'") || '',
-        artist: item.primary_artists || item.singers || 'Unknown',
-        album: item.album?.replace(/&quot;/g, '"')?.replace(/&#039;/g, "'") || '',
+        title: decodeHtmlEntities(item.song) || '',
+        artist: decodeHtmlEntities(item.primary_artists || item.singers || 'Unknown'),
+        album: decodeHtmlEntities(item.album) || '',
         duration: Number(item.duration) || 180,
         genre: item.language || 'Music',
         language: item.language || language,
@@ -442,9 +492,9 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
           try { mi = JSON.parse(mi); } catch (_) { mi = {}; }
         }
 
-        const candidateSong = sd.title || sd.song || '';
-        const candidateArtist = mi?.artistMap?.primary_artists?.map(a => a.name).join(', ') || sd.primary_artists || sd.subtitle || '';
-        const candidateAlbum = mi?.album || sd.album || '';
+        const candidateSong = decodeHtmlEntities(sd.title || sd.song || '');
+        const candidateArtist = decodeHtmlEntities(mi?.artistMap?.primary_artists?.map(a => a.name).join(', ') || sd.primary_artists || sd.subtitle || '');
+        const candidateAlbum = decodeHtmlEntities(mi?.album || sd.album || '');
 
         // Strict verification
         const isMatch = verifyTrackMatch(targetTitle, targetArtist, targetAlbum, {
@@ -496,6 +546,7 @@ async function resolveVerifiedAudioStream(targetTitle, targetArtist = '', target
 }
 
 module.exports = {
+  decodeHtmlEntities,
   normalizeText,
   computeSimilarity,
   parseQuery,

@@ -459,29 +459,16 @@ async function saavnGetAudioUrl(query) {
 }
 
 /**
- * Smart Saavn search with query simplification fallbacks.
- * Malayalam/Tamil titles from iTunes often have "| Official Audio | Movie Name" suffixes
- * that prevent Saavn from matching. We strip these progressively.
+ * Verified Saavn search helper.
+ * Strictly verifies candidates against query to ensure no incorrect tracks are returned.
  */
 async function saavnSearch(rawQuery) {
   if (!rawQuery) throw new Error("Saavn: empty query");
-  const queries = [
-    rawQuery,
-    rawQuery.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim(),   // remove (From "Movie")
-    rawQuery.replace(/\s*[-|:]\s*.+$/, "").trim(),              // remove " - Official Audio?"
-    rawQuery.replace(/\b(official|audio|video|lyric|lyrics|full|song|hd|4k)\b.*/gi, "").trim(),
-    rawQuery.split(/\s+/).slice(0, 3).join(" "),                // first 3 words
-  ].filter((q, i, arr) => q && q.length > 2 && arr.indexOf(q) === i);
-
-  let lastErr;
-  for (const q of queries) {
-    try { return await saavnGetAudioUrl(q); }
-    catch (e) {
-      console.warn(`[Saavn] query "${q.slice(0, 50)}" +' ${e.message.slice(0, 60)}`);
-      lastErr = e;
-    }
+  const res = await resolveVerifiedAudioStream(rawQuery);
+  if (res && res.via === 'saavn' && res.streamUrl) {
+    return { url: res.streamUrl, contentType: res.contentType || "audio/mp4" };
   }
-  throw lastErr || new Error(`Saavn: no match for "${rawQuery}"`);
+  throw new Error(`Saavn: no verified match for "${rawQuery}"`);
 }
 
 // "?"? 4. @distube/ytdl-core ?" direct Node.js scraper "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
@@ -550,9 +537,9 @@ async function resolveAudioUrl(videoId) {
   const cached = getCachedAudio(videoId);
   if (cached) { console.log(`[YT] cache hit for ${videoId} (via ${cached.via})`); return cached; }
 
-  // "?"? Pre-flight: oEmbed title +' JioSaavn lookup "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
+  // ── Pre-flight: oEmbed title → verified JioSaavn lookup ───────────────────────
   // For Malayalam/Indian tracks, Saavn has the full track and CDN is fast.
-  // This saves 10-30s compared to going through all the YouTube resolvers.
+  // We strictly verify so unrelated songs are NEVER selected.
   try {
     const oeCtrl  = new AbortController();
     const oeTimer = setTimeout(() => oeCtrl.abort(), 4000);
@@ -564,10 +551,14 @@ async function resolveAudioUrl(videoId) {
     if (oeRes.ok) {
       const { title: oeTitle } = await oeRes.json();
       if (oeTitle) {
-        const saavn = await saavnSearch(oeTitle);
-        console.log(`[YT] resolved ${videoId} via Saavn+oEmbed ("${oeTitle.slice(0,40)}")`);
-        setCachedAudio(videoId, saavn.url, saavn.contentType, "saavn");
-        return { ...saavn, via: "saavn" };
+        const verified = await resolveVerifiedAudioStream(oeTitle);
+        if (verified && verified.via === 'saavn' && verified.streamUrl) {
+          console.log(`[YT] resolved ${videoId} via verified Saavn+oEmbed ("${oeTitle.slice(0,40)}")`);
+          setCachedAudio(videoId, verified.streamUrl, verified.contentType || "audio/mp4", "saavn");
+          return { url: verified.streamUrl, contentType: verified.contentType || "audio/mp4", via: "saavn" };
+        } else {
+          console.log(`[YT] Saavn candidate for "${oeTitle}" did not pass strict verification; preserving YouTube pipeline`);
+        }
       }
     }
   } catch (saavnPreErr) {
@@ -1030,89 +1021,55 @@ app.get('/api/auth/me', requireAuth, wrap(async (req, res) => {
 
 // ── Resolve title+artist+album → verified stream URL ─────────────────────
 app.get("/api/youtube/resolve", wrap(async (req, res) => {
+  const reqId = req.headers['x-request-id'] || req.query.requestId || Math.random().toString(36).slice(2, 8);
+  res.setHeader('X-Request-Id', reqId);
   const { title, artist, album } = req.query;
-  if (!title) return res.status(400).json({ error: "title required" });
+  if (!title) return res.status(400).json({ error: "title required", requestId: reqId });
 
+  console.log(`[resolve][${reqId}] Request: title="${title}" artist="${artist || ''}" album="${album || ''}"`);
   const resolved = await resolveVerifiedAudioStream(title, artist, album);
   if (resolved?.streamUrl) {
-    return res.json(resolved);
+    console.log(`[resolve][${reqId}] Success via ${resolved.via}`);
+    return res.json({ ...resolved, requestId: reqId });
   }
 
-  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song" });
+  console.warn(`[resolve][${reqId}] No verified stream found`);
+  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song", requestId: reqId });
 }));
 
 // ── Direct lookup by title+artist+album with strict verification ────────────
 app.get("/api/saavn/stream", wrap(async (req, res) => {
+  const reqId = req.headers['x-request-id'] || req.query.requestId || Math.random().toString(36).slice(2, 8);
+  res.setHeader('X-Request-Id', reqId);
   const { title, artist, album } = req.query;
-  if (!title) return res.status(400).json({ error: "title required" });
+  if (!title) return res.status(400).json({ error: "title required", requestId: reqId });
 
+  console.log(`[saavn-stream][${reqId}] Request: title="${title}" artist="${artist || ''}" album="${album || ''}"`);
   const resolved = await resolveVerifiedAudioStream(title, artist, album);
   if (resolved?.streamUrl) {
-    return res.json(resolved);
+    console.log(`[saavn-stream][${reqId}] Success via ${resolved.via}`);
+    return res.json({ ...resolved, requestId: reqId });
   }
 
-  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song" });
+  console.warn(`[saavn-stream][${reqId}] No verified stream found`);
+  return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song", requestId: reqId });
 }));
 
-
-
 app.get("/api/youtube/stream", wrap(async (req, res) => {
+  const reqId = req.headers['x-request-id'] || req.query.requestId || Math.random().toString(36).slice(2, 8);
+  res.setHeader('X-Request-Id', reqId);
   const { id } = req.query;
   if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
-    return res.status(400).json({ error: "Invalid videoId" });
+    return res.status(400).json({ error: "Invalid videoId", requestId: reqId });
   }
 
-  // "?"? PRE-FLIGHT: try Saavn via oEmbed title BEFORE the heavy YT resolver chain.
-  // Render cloud IPs are often blocked by YouTube. oEmbed is not IP-restricted.
-  // This saves 10-30s and avoids the 500 for Indian tracks.
-  try {
-    const oEmbedRes = await fetch(
-      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (oEmbedRes.ok) {
-      const { title: vtitle } = await oEmbedRes.json();
-      if (vtitle) {
-        try {
-          const saavn = await saavnSearch(vtitle); // multi-query variant for best hit-rate
-          console.log(`[YT stream] Saavn pre-flight o" for ${id}: "${vtitle}"`);
-          res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
-          return res.redirect(302, saavn.url);
-        } catch (saavnPreErr) {
-          console.warn(`[YT stream] Saavn pre-flight miss for "${vtitle}": ${saavnPreErr.message?.slice(0, 60)}`);
-        }
-      }
-    }
-  } catch (oembedErr) {
-    console.warn(`[YT stream] oEmbed pre-flight failed for ${id}: ${oembedErr.message?.slice(0, 60)}`);
-  }
-
+  console.log(`[yt-stream][${reqId}] Request for videoId: ${id}`);
   let entry;
   try {
     entry = await resolveAudioUrl(id);
   } catch (err) {
-    console.warn(`[YT stream] All methods failed for ${id}: ${err.message}`);
-
-    // Last resort: try Saavn one more time with a fresh oEmbed lookup
-    try {
-      const oEmbedRes = await fetch(
-        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
-        { signal: AbortSignal.timeout(6000) }
-      );
-      if (oEmbedRes.ok) {
-        const { title: vtitle } = await oEmbedRes.json();
-        if (vtitle) {
-          const saavn = await saavnSearch(vtitle);
-          console.log(`[YT stream] oEmbed+Saavn last-resort OK for ${id}: "${vtitle}"`);
-          res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" });
-          return res.redirect(302, saavn.url);
-        }
-      }
-    } catch (saavnErr) {
-      console.warn(`[YT stream] oEmbed+Saavn last-resort failed for ${id}:`, saavnErr.message);
-    }
-
-    return res.status(500).json({ error: "Audio unavailable", detail: err.message });
+    console.warn(`[yt-stream][${reqId}] All methods failed for ${id}: ${err.message}`);
+    return res.status(500).json({ error: "Audio unavailable", detail: err.message, requestId: reqId });
   }
 
   // For ytdl-core or yt-dlp resolved URLs: stream via yt-dlp which handles
