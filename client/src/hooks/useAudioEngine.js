@@ -1,8 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { audioEngine } from '../audio/AudioEngine';
 
 // Single audio element at module scope — never recreated
 const audioEl = new Audio();
 audioEl.preload = 'auto';
+audioEl.crossOrigin = 'anonymous';
 
 export function useAudioEngine(currentTrack, preferences) {
   const audioRef  = useRef(audioEl);
@@ -11,10 +13,14 @@ export function useAudioEngine(currentTrack, preferences) {
   const [elapsed,   setElapsed]   = useState(0);
   const [duration,  setDuration]  = useState(0);
   const pendingSrc = useRef(null); // track which src we're loading
+  const retryWithoutCors = useRef(false);
 
-  // Wire all audio events exactly once
+  // Wire all audio events and initialize DSP audio graph exactly once
   useEffect(() => {
     const audio = audioRef.current;
+
+    // Initialize Web Audio DSP Engine with the single audio element
+    audioEngine.init(audio);
 
     const onTimeUpdate = () => {
       const dur = audio.duration || 0;
@@ -23,16 +29,30 @@ export function useAudioEngine(currentTrack, preferences) {
       setDuration(isNaN(dur) || !isFinite(dur) ? 0 : Math.floor(dur));
       setProgress(dur > 0 ? (cur / dur) * 100 : 0);
     };
-    const onPlay    = () => setIsPlaying(true);
+    const onPlay    = () => {
+      setIsPlaying(true);
+      audioEngine.resume();
+    };
     const onPause   = () => setIsPlaying(false);
     const onEnded   = () => { setIsPlaying(false); setProgress(100); };
     const onError   = (e) => {
       console.warn('[Audio error]', e.target?.error?.code, e.target?.error?.message);
+      // Graceful CORS fallback: If an external stream does not permit CORS, retry with native playback
+      if (audio.crossOrigin === 'anonymous' && !retryWithoutCors.current && pendingSrc.current) {
+        console.warn('[AudioEngine] Stream CORS blocked by provider. Falling back to native playback mode...');
+        retryWithoutCors.current = true;
+        audioEngine.corsDegraded = true;
+        audio.crossOrigin = null;
+        audio.src = pendingSrc.current;
+        audio.load();
+        audio.play().catch(err => console.warn('[CORS fallback play error]', err.message));
+        return;
+      }
       setIsPlaying(false);
     };
     const onWaiting = () => console.info('[Audio waiting] buffering…');
 
-    // ── Stall recovery: reload the src (triggers a fresh /api/youtube/stream redirect) ──
+    // ── Stall recovery: reload the src (triggers a fresh stream redirect) ──
     let stallTimer = null;
     const onStall = () => {
       console.warn('[Audio stall] network stall on', audio.src?.slice(-60));
@@ -88,6 +108,13 @@ export function useAudioEngine(currentTrack, preferences) {
     if (audio.src && (audio.src === src || audio.src.endsWith(src))) return;
 
     pendingSrc.current = src;
+    retryWithoutCors.current = false;
+    audioEngine.corsDegraded = false;
+
+    // Ensure crossOrigin is anonymous by default for DSP processing
+    if (audio.crossOrigin !== 'anonymous') {
+      audio.crossOrigin = 'anonymous';
+    }
 
     const wasPlaying = !audio.paused;
     audio.pause();
@@ -103,6 +130,7 @@ export function useAudioEngine(currentTrack, preferences) {
       if (pendingSrc.current !== src) return; // stale
       audio.removeEventListener('canplay', onCanPlay);
       if (wasPlaying) {
+        audioEngine.resume();
         audio.play().catch(err => console.warn('[Autoplay blocked]', err.message));
       }
     };
@@ -124,6 +152,7 @@ export function useAudioEngine(currentTrack, preferences) {
   const play = useCallback(() => {
     const audio = audioRef.current;
     if (!audio.src) return;
+    audioEngine.resume();
     // If still loading, wait for canplay then trigger
     if (audio.readyState < 2) {
       const onReady = () => {

@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useApp }        from '../../context/AppContext';
 import { usePlayer }     from '../../context/PlayerContext';
+import { useAudioEngineContext } from '../../audio/AudioEngineContext';
 import { artProxy }      from '../../utils/audioHelpers';
 import { useSwipeSheet } from '../../hooks/useSwipeSheet';
 
@@ -21,6 +22,7 @@ export function BottomNav() {
     togglePlay,
     toggleFavorite,
   } = usePlayer();
+  const { openAudioExperience, dspSettings, eqSettings } = useAudioEngineContext();
 
   // ── Swipe-up gesture to open Now Playing sheet ──────────────
   const swipeRef = useSwipeSheet({
@@ -122,8 +124,22 @@ export function BottomNav() {
               <span>{currentTrack.artist}</span>
             </div>
 
-            {/* Heart + Play */}
+            {/* Heart + Audio DSP + Play */}
             <div className="bmp-strip-btns">
+              <button
+                className={`bmp-icon-btn${dspSettings.engineEnabled || eqSettings.eqEnabled ? ' bmp-icon-btn--active' : ''}`}
+                onClick={e => { e.stopPropagation(); openAudioExperience('engine'); }}
+                title="Auralis Audio Experience (DSP Studio)"
+                style={(dspSettings.engineEnabled || eqSettings.eqEnabled) ? { color: '#67f0b7' } : {}}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+                  <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+                  <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" />
+                  <line x1="17" y1="16" x2="23" y2="16" />
+                </svg>
+              </button>
               <button
                 className={`bmp-icon-btn${isFav ? ' bmp-icon-btn--active' : ''}`}
                 onClick={e => { e.stopPropagation(); toggleFavorite(currentTrack.id); }}

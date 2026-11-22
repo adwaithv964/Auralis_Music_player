@@ -1,6 +1,7 @@
 import { useApp }               from '../../context/AppContext';
 import { usePlayer }            from '../../context/PlayerContext';
 import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
+import { useAudioEngineContext } from '../../audio/AudioEngineContext';
 import { SourceBadge }          from '../common/SourceBadge';
 import { artProxy, fmt }        from '../../utils/audioHelpers';
 import { useSwipeSheet }        from '../../hooks/useSwipeSheet';
@@ -25,6 +26,7 @@ export function NowPlaying() {
     isFav,
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
+  const { openAudioExperience, dspSettings, eqSettings, activeProfileData } = useAudioEngineContext();
   const { theme } = useAlbumThemeContext();
 
   // Inline style helpers derived from the dynamic theme
@@ -230,6 +232,21 @@ export function NowPlaying() {
               </svg>
               <span>Share</span>
             </button>
+            <button
+              className={`spotify-action-btn${dspSettings.engineEnabled || eqSettings.eqEnabled ? ' active' : ''}`}
+              title="Auralis Audio Experience (DSP & EQ Studio)"
+              onClick={() => openAudioExperience('engine')}
+              style={(dspSettings.engineEnabled || eqSettings.eqEnabled) ? { color: '#67f0b7' } : {}}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+                <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+                <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" />
+                <line x1="17" y1="16" x2="23" y2="16" />
+              </svg>
+              <span>{dspSettings.engineEnabled ? activeProfileData.name : 'Audio DSP'}</span>
+            </button>
             <button className="spotify-action-btn" title="Queue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
                 <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/>
@@ -259,6 +276,22 @@ export function NowPlaying() {
           {/* ── Source / meta tags ── */}
           <div className="spotify-now-meta">
             <SourceBadge track={currentTrack} />
+            {dspSettings.engineEnabled && (
+              <button
+                className="spotify-now-tag"
+                onClick={() => openAudioExperience('engine')}
+                style={{
+                  background: 'rgba(103, 240, 183, 0.15)',
+                  borderColor: 'rgba(103, 240, 183, 0.35)',
+                  color: '#67f0b7',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+                title="Click to adjust Sound Engine"
+              >
+                ✦ {activeProfileData.name}
+              </button>
+            )}
             {currentTrack.genre && <span className="spotify-now-tag">{currentTrack.genre}</span>}
             {currentTrack.year  && <span className="spotify-now-tag">{currentTrack.year}</span>}
           </div>

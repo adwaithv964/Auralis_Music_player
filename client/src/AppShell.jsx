@@ -10,6 +10,7 @@ import { Home }          from './pages/Home/Home';
 import { Search }        from './pages/Search/Search';
 import { Library }       from './pages/Library/Library';
 import { Preferences }   from './Preferences';
+import { AudioExperienceModal } from './components/AudioExperience/AudioExperienceModal';
 import { SvgSprite }     from './components/Icons';
 
 const NOW_MIN  = 240;   // px — right panel minimum width
@@ -133,6 +134,9 @@ export function AppShell() {
           onClose={() => setShowPrefs(false)}
         />
       )}
+
+      {/* ── Audio Experience DSP & EQ modal (global) ── */}
+      <AudioExperienceModal />
 
       {/* ── Playlist picker modal (global, rendered at root) ── */}
       <PlaylistModal />

@@ -1,6 +1,7 @@
 import { useApp }              from '../../context/AppContext';
 import { usePlayer }           from '../../context/PlayerContext';
 import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
+import { useAudioEngineContext } from '../../audio/AudioEngineContext';
 import { artProxy, fmt }       from '../../utils/audioHelpers';
 
 /**
@@ -23,6 +24,7 @@ export function PlayerBar() {
     isFav,
     togglePlay, handlePrev, handleNext, toggleFavorite,
   } = usePlayer();
+  const { openAudioExperience, dspSettings, eqSettings } = useAudioEngineContext();
   const { theme } = useAlbumThemeContext();
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -146,8 +148,39 @@ export function PlayerBar() {
         </div>
       </div>
 
-      {/* ── Right: volume ── */}
-      <div className="volume-zone">
+      {/* ── Right: volume & Audio DSP ── */}
+      <div className="volume-zone" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Audio Experience Studio Trigger Button */}
+        <button
+          className={`icon-button${dspSettings.engineEnabled || eqSettings.eqEnabled ? ' active' : ''}`}
+          onClick={() => openAudioExperience('engine')}
+          title="Auralis Audio Experience (DSP & EQ Studio)"
+          style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '4px 8px',
+            borderRadius: '8px',
+            background: (dspSettings.engineEnabled || eqSettings.eqEnabled) ? 'rgba(103, 240, 183, 0.15)' : 'rgba(255,255,255,0.05)',
+            border: (dspSettings.engineEnabled || eqSettings.eqEnabled) ? '1px solid rgba(103, 240, 183, 0.4)' : '1px solid transparent',
+            color: (dspSettings.engineEnabled || eqSettings.eqEnabled) ? '#67f0b7' : 'currentColor',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+            <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+            <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" />
+            <line x1="17" y1="16" x2="23" y2="16" />
+          </svg>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, marginLeft: 4, letterSpacing: '0.04em' }}>
+            {dspSettings.engineEnabled ? 'DSP' : eqSettings.eqEnabled ? 'EQ' : 'AUDIO'}
+          </span>
+        </button>
+
         <svg aria-hidden="true"><use href="#i-volume" /></svg>
         <input type="range" min="0" max="100" value={prefs.volume}
           onChange={e => setPrefs(p => ({ ...p, volume: Number(e.target.value) }))} />

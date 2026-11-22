@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useAudioEngineContext } from './audio/AudioEngineContext';
+import { EQ_BAND_LABELS } from './audio/constants';
 
 /* ── Toggle switch ────────────────────────────────────────── */
 function Toggle({ checked, onChange }) {
@@ -67,6 +69,7 @@ function PrefSection({ title, children }) {
 /* ── Main Preferences Panel ───────────────────────────────── */
 export function Preferences({ prefs, setPrefs, onClose }) {
   const [activeTab, setActiveTab] = useState('playback');
+  const { eqSettings, toggleEqualizer, setEqBand, openAudioExperience, dspSettings } = useAudioEngineContext();
 
   const set = (key, val) => setPrefs(p => ({ ...p, [key]: val }));
 
@@ -232,31 +235,58 @@ export function Preferences({ prefs, setPrefs, onClose }) {
                 />
               </PrefSection>
 
-              <PrefSection title="Equalizer">
-                <div className="pref-eq-info">
-                  <span className="pref-row-icon" style={{ fontSize: '1.4rem' }}>🎚️</span>
-                  <div>
-                    <span className="pref-row-title">Equalizer</span>
-                    <span className="pref-row-desc">Adjust different frequencies to enhance your audio experience.</span>
+              <PrefSection title="Auralis Audio Engine & Equalizer">
+                <div className="pref-eq-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <span className="pref-row-icon" style={{ fontSize: '1.4rem' }}>🎚️</span>
+                    <div>
+                      <span className="pref-row-title">Independent 10-Band Equalizer</span>
+                      <span className="pref-row-desc">
+                        Status: <strong style={{ color: eqSettings.eqEnabled ? '#67f0b7' : '#a9b1aa' }}>{eqSettings.eqEnabled ? 'Active' : 'Bypassed'}</strong>
+                      </span>
+                    </div>
                   </div>
+                  <Toggle checked={eqSettings.eqEnabled} onChange={() => toggleEqualizer()} />
                 </div>
-                <div className="pref-eq-bars">
-                  {['60Hz','150Hz','400Hz','1kHz','2.4kHz','6kHz','15kHz'].map((band, i) => {
-                    const eqKey = `eq_${i}`;
-                    const val = prefs[eqKey] ?? 50;
+
+                <div className="pref-eq-bars" style={{ opacity: eqSettings.eqEnabled ? 1 : 0.45, marginTop: 12 }}>
+                  {EQ_BAND_LABELS.map((band, i) => {
+                    const val = eqSettings.bands?.[i] ?? 0;
                     return (
                       <div key={band} className="pref-eq-band">
-                        <span className="pref-eq-value">{val > 50 ? `+${val - 50}` : val - 50}</span>
+                        <span className="pref-eq-value">{val > 0 ? `+${val.toFixed(1)}` : val.toFixed(1)}</span>
                         <input
-                          type="range" min="0" max="100" orient="vertical"
+                          type="range" min="-12" max="12" step="0.5" orient="vertical"
                           value={val}
+                          disabled={!eqSettings.eqEnabled}
                           className="pref-eq-slider"
-                          onChange={e => set(eqKey, Number(e.target.value))}
+                          onChange={e => setEqBand(i, e.target.value)}
                         />
                         <span className="pref-eq-label">{band}</span>
                       </div>
                     );
                   })}
+                </div>
+
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+                  <button
+                    className="pref-action-btn"
+                    onClick={() => {
+                      onClose();
+                      openAudioExperience('engine');
+                    }}
+                    style={{
+                      background: 'rgba(103, 240, 183, 0.15)',
+                      border: '1px solid rgba(103, 240, 183, 0.4)',
+                      color: '#67f0b7',
+                      padding: '8px 18px',
+                      borderRadius: 8,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✦ Open Auralis Audio Experience Studio (True Bass, Spatial, Profiles)
+                  </button>
                 </div>
               </PrefSection>
 

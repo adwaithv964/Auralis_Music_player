@@ -13,6 +13,7 @@ import { lazy, Suspense }       from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider }          from './context/AppContext';
 import { PlayerProvider }       from './context/PlayerContext';
+import { AudioEngineProvider }  from './audio/AudioEngineContext';
 import { AlbumThemeProvider }   from './context/AlbumThemeContext';
 import { AuthPage }             from './pages/Auth/AuthPage';
 import { setApiToken }          from './services/api';
@@ -66,11 +67,13 @@ function AuthGate() {
   return (
     <AppProvider>
       <PlayerProvider>
-        <AlbumThemeProvider>
-          <Suspense fallback={<LoadingSpinner />}>
-            <AppShell />
-          </Suspense>
-        </AlbumThemeProvider>
+        <AudioEngineProvider>
+          <AlbumThemeProvider>
+            <Suspense fallback={<LoadingSpinner />}>
+              <AppShell />
+            </Suspense>
+          </AlbumThemeProvider>
+        </AudioEngineProvider>
       </PlayerProvider>
     </AppProvider>
   );
