@@ -39,8 +39,8 @@ for (const profileId of requiredProfiles) {
 }
 console.log(`  ✓ All ${requiredProfiles.length} required Master Profiles present with genuine DSP parameters.`);
 
-// ── 2. Validate 7 Device Profiles ──────────────────────────────
-console.log('\n[TEST 2] Verifying 7 Hardware Device Listening Profiles...');
+// ── 2. Validate 9 Device Profiles ──────────────────────────────
+console.log('\n[TEST 2] Verifying 9 Hardware Device Listening Profiles...');
 const devicesSource = fs.readFileSync('./client/src/audio/deviceProfiles.js', 'utf8');
 
 const requiredDevices = [
@@ -51,6 +51,8 @@ const requiredDevices = [
   'studio_headphones',
   'portable_speakers',
   'desktop_speakers',
+  'laptop_speakers',
+  'phone_speakers',
 ];
 
 for (const devId of requiredDevices) {

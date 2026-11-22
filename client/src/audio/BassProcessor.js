@@ -53,13 +53,13 @@ export class BassProcessor {
     this.midPunchFilter.Q.value = 1.4;
     this.midPunchFilter.gain.value = 0;
 
-    // 5. Low-Band Excursion / Peak Limiting Compressor
+    // 5. Transparent Bass Dynamic Headroom Guard (prevents clipping without choking transients)
     this.bassCompressor = audioCtx.createDynamicsCompressor();
-    this.bassCompressor.threshold.value = -12; // dB
+    this.bassCompressor.threshold.value = -2.5; // Only acts on extreme peaks > -2.5 dBFS
     this.bassCompressor.knee.value = 6;
-    this.bassCompressor.ratio.value = 3.5;
-    this.bassCompressor.attack.value = 0.008; // 8ms fast attack
-    this.bassCompressor.release.value = 0.090; // 90ms release
+    this.bassCompressor.ratio.value = 1.25;
+    this.bassCompressor.attack.value = 0.040; // 40ms attack: lets natural kick transient punch through
+    this.bassCompressor.release.value = 0.080;
 
     // ── Psychoacoustic Harmonic Bass Generator ────────────────────────
     // Isolates 40-90 Hz fundamentals, generates 2nd/3rd harmonics (80-200 Hz),
@@ -148,10 +148,10 @@ export class BassProcessor {
     this.deepBassFilter.gain.setTargetAtTime(clampedDeep, t, rampTime);
     this.midPunchFilter.gain.setTargetAtTime(clampedPunch, t, rampTime);
 
-    // Bass Compressor ratio and threshold adapt to bass intensity
-    const compThresh = -10 - (clampedDeep * 0.6);
+    // Transparent peak protection only for high outputs
+    const compThresh = Math.max(-4.5, -2.5 - (clampedDeep * 0.15));
     this.bassCompressor.threshold.setTargetAtTime(compThresh, t, rampTime);
-    this.bassCompressor.ratio.setTargetAtTime(3.0 + (settings.bassCompression || 2.0) * 0.4, t, rampTime);
+    this.bassCompressor.ratio.setTargetAtTime(1.15 + (settings.bassCompression ? 0.15 : 0.0), t, rampTime);
 
     // Psychoacoustic Bass Generator
     const useHarmonics = settings.psychoacousticBass && (deviceOffsets.psychoacousticBass !== false);

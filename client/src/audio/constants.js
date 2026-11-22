@@ -47,50 +47,50 @@ export const SPATIAL_MODES = {
   speaker:          { id: 'speaker',          label: 'Speaker Mode',      desc: 'Crosstalk acoustic compensation for desktop & portable speakers' },
 };
 
-// Default DSP Settings (Auralis Reference baseline)
+// Default DSP Settings (Auralis Reference baseline - Dynamic, Punchy & 3D Spatial)
 export const DEFAULT_DSP_SETTINGS = {
   engineEnabled: false,           // Main Auralis Sound Engine ON/OFF
   activeProfile: 'reference',     // Profile id
   intensity: 'balanced',          // natural | balanced | powerful | extreme
   deviceProfile: 'universal',     // device profile id
-  loudnessMatch: false,           // Loudness-matched A/B comparison
+  loudnessMatch: false,           // Loudness-matched comparison (false for full dynamic authority)
 
-  // Bass Engine (True Bass)
-  deepBass: 2.0,                  // dB (-6 to +12)
-  bassPunch: 2.5,                 // dB (-6 to +10)
-  bassTexture: 1.5,               // Warmth & harmonic saturation (0 to 10)
-  bassIntensity: 1.0,             // Bass scaling (0 to 2)
+  // Bass Engine (True Bass - Visceral, punchy, uncompressed low-end)
+  deepBass: 3.2,                  // dB (-6 to +12)
+  bassPunch: 3.8,                 // dB (-6 to +10)
+  bassTexture: 2.2,               // Warmth & harmonic saturation (0 to 10)
+  bassIntensity: 1.15,            // Bass scaling (0 to 2)
   psychoacousticBass: true,       // Harmonic missing-fundamental synthesis
   subSonicFilter: true,           // Infrasonic rumble high-pass at 22 Hz
 
-  // Vocal & Midrange
-  vocalClarity: 2.0,              // dB (-6 to +8)
-  vocalPresence: 1.5,             // dB (-6 to +8)
-  nasalReduction: 1.0,            // dB (0 to 6 reduction)
-  harshnessControl: 1.5,          // dB (0 to 8 reduction)
+  // Vocal & Midrange (Centered, articulate, non-fatiguing)
+  vocalClarity: 2.2,              // dB (-6 to +8)
+  vocalPresence: 1.6,             // dB (-6 to +8)
+  nasalReduction: 0.8,            // dB (0 to 6 reduction)
+  harshnessControl: 1.0,          // dB (0 to 8 reduction)
   vocalWarmth: 1.0,               // dB (-4 to +6)
 
-  // Crystal-Clear Treble
-  crystalTreble: 2.0,             // dB (-6 to +8)
-  airSparkle: 1.5,                // dB (-6 to +8)
-  sibilanceControl: 1.5,          // De-esser level (0 to 8)
-  trebleDetail: 1.5,              // dB (-4 to +6)
+  // Crystal-Clear Treble (Silky air, crisp cymbals, non-harsh)
+  crystalTreble: 2.4,             // dB (-6 to +8)
+  airSparkle: 2.0,                // dB (-6 to +8)
+  sibilanceControl: 1.2,          // De-esser level (0 to 8)
+  trebleDetail: 1.8,              // dB (-4 to +6)
 
-  // Spatial Audio
-  spatialMode: 'stereo',          // stereo | wide | headphone_spatial | crossfeed | cinematic | speaker
-  stereoWidth: 1.0,               // 0.0 (mono) to 2.0 (super-wide), 1.0 = normal
-  crossfeedAmount: 0.35,          // 0.0 to 1.0
-  spatialDepth: 0.40,             // 0.0 to 1.0
+  // Spatial Audio (Immersive 3D Soundstage, Dolby-style out-of-head separation)
+  spatialMode: 'wide',            // wide | headphone_spatial | stereo | crossfeed | cinematic | speaker
+  stereoWidth: 1.30,              // 0.0 (mono) to 2.0 (super-wide)
+  crossfeedAmount: 0.15,          // 0.0 to 1.0
+  spatialDepth: 0.35,             // 0.0 to 1.0
 
-  // Multiband Dynamics
+  // Multiband Dynamics (Mastering Headroom & Dynamic Preservation)
   multibandEnabled: true,
   dynamicRangePreservation: true, // Gentle transparent ratio vs heavy squash
-  bassCompression: 2.5,           // Low-band peak containment (1 to 6)
-  masterPunch: 1.2,               // Transient impact multiplier
+  bassCompression: 1.8,           // Low-band peak containment (gentle)
+  masterPunch: 1.25,              // Transient impact multiplier
 
   // Output & Limiter
   inputGain: 0.0,                 // dB (-12 to +6)
-  outputCeiling: -1.0,            // dBTP (-3.0 to -0.1)
+  outputCeiling: -0.5,            // dBTP (-3.0 to -0.1)
   softLimiterEnabled: true,
 };
 

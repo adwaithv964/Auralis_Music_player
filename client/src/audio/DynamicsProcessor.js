@@ -58,35 +58,35 @@ export class DynamicsProcessor {
     this.band5Filter.frequency.value = 8000;
     this.band5Filter.Q.value = 0.707;
 
-    // ── Compressors for each band ──────────────────────────────────
+    // ── Compressors for each band (Mastering Grade: Transparent, Open & Dynamic) ─
     this.comp1 = audioCtx.createDynamicsCompressor(); // Sub/Bass
-    this.comp1.threshold.value = -14;
-    this.comp1.ratio.value = 3.0;
-    this.comp1.attack.value = 0.010;
+    this.comp1.threshold.value = -4.0;
+    this.comp1.ratio.value = 1.25;
+    this.comp1.attack.value = 0.045; // 45ms: preserves kick drum transient impact
     this.comp1.release.value = 0.120;
 
     this.comp2 = audioCtx.createDynamicsCompressor(); // Low-Mid
-    this.comp2.threshold.value = -16;
-    this.comp2.ratio.value = 2.0;
-    this.comp2.attack.value = 0.015;
+    this.comp2.threshold.value = -5.0;
+    this.comp2.ratio.value = 1.20;
+    this.comp2.attack.value = 0.035;
     this.comp2.release.value = 0.100;
 
     this.comp3 = audioCtx.createDynamicsCompressor(); // Mid
-    this.comp3.threshold.value = -18;
-    this.comp3.ratio.value = 1.8;
-    this.comp3.attack.value = 0.020;
+    this.comp3.threshold.value = -5.0;
+    this.comp3.ratio.value = 1.20;
+    this.comp3.attack.value = 0.030;
     this.comp3.release.value = 0.080;
 
     this.comp4 = audioCtx.createDynamicsCompressor(); // High-Mid
-    this.comp4.threshold.value = -18;
-    this.comp4.ratio.value = 2.0;
-    this.comp4.attack.value = 0.010;
+    this.comp4.threshold.value = -5.0;
+    this.comp4.ratio.value = 1.20;
+    this.comp4.attack.value = 0.025;
     this.comp4.release.value = 0.070;
 
     this.comp5 = audioCtx.createDynamicsCompressor(); // Treble
-    this.comp5.threshold.value = -16;
-    this.comp5.ratio.value = 2.2;
-    this.comp5.attack.value = 0.005;
+    this.comp5.threshold.value = -4.5;
+    this.comp5.ratio.value = 1.25;
+    this.comp5.attack.value = 0.020;
     this.comp5.release.value = 0.050;
 
     // Band Makeup Gains
@@ -162,23 +162,23 @@ export class DynamicsProcessor {
     this.dryGain.gain.setTargetAtTime(0.0, t, rampTime);
     this.wetGain.gain.setTargetAtTime(1.0, t, rampTime);
 
-    // Thresholds and ratios adapt to dynamic range preservation mode
-    const ratioScale = preserveDynamics ? 0.65 : 1.0;
-    const threshOffset = preserveDynamics ? 4 : 0; // Higher threshold = less squash
+    // Mastering dynamic control: gentle, musical crest preservation without squashing
+    const ratioScale = preserveDynamics ? 0.75 : 1.0;
+    const threshOffset = preserveDynamics ? 2.0 : 0.0;
 
-    this.comp1.threshold.setTargetAtTime(-14 + threshOffset, t, rampTime);
-    this.comp1.ratio.setTargetAtTime(Math.max(1.2, 3.2 * ratioScale), t, rampTime);
+    this.comp1.threshold.setTargetAtTime(-4.5 + threshOffset, t, rampTime);
+    this.comp1.ratio.setTargetAtTime(Math.max(1.10, 1.30 * ratioScale), t, rampTime);
 
-    this.comp2.threshold.setTargetAtTime(-16 + threshOffset, t, rampTime);
-    this.comp2.ratio.setTargetAtTime(Math.max(1.2, 2.2 * ratioScale), t, rampTime);
+    this.comp2.threshold.setTargetAtTime(-5.0 + threshOffset, t, rampTime);
+    this.comp2.ratio.setTargetAtTime(Math.max(1.10, 1.25 * ratioScale), t, rampTime);
 
-    this.comp3.threshold.setTargetAtTime(-18 + threshOffset, t, rampTime);
-    this.comp3.ratio.setTargetAtTime(Math.max(1.2, 2.0 * ratioScale), t, rampTime);
+    this.comp3.threshold.setTargetAtTime(-5.0 + threshOffset, t, rampTime);
+    this.comp3.ratio.setTargetAtTime(Math.max(1.10, 1.20 * ratioScale), t, rampTime);
 
-    this.comp4.threshold.setTargetAtTime(-18 + threshOffset, t, rampTime);
-    this.comp4.ratio.setTargetAtTime(Math.max(1.2, 2.2 * ratioScale), t, rampTime);
+    this.comp4.threshold.setTargetAtTime(-5.0 + threshOffset, t, rampTime);
+    this.comp4.ratio.setTargetAtTime(Math.max(1.10, 1.25 * ratioScale), t, rampTime);
 
-    this.comp5.threshold.setTargetAtTime(-16 + threshOffset, t, rampTime);
-    this.comp5.ratio.setTargetAtTime(Math.max(1.2, 2.4 * ratioScale), t, rampTime);
+    this.comp5.threshold.setTargetAtTime(-4.5 + threshOffset, t, rampTime);
+    this.comp5.ratio.setTargetAtTime(Math.max(1.10, 1.30 * ratioScale), t, rampTime);
   }
 }

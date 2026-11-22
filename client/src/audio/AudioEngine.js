@@ -33,6 +33,12 @@ class AudioEngineController {
     this.eqSettings  = this._loadStorage(STORAGE_KEYS.EQ_SETTINGS,  DEFAULT_EQ_SETTINGS);
     this.customEqPresets = this._loadStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, []);
 
+    // Ensure loudnessMatch is disabled by default so volume is full and unattenuated
+    if (this.dspSettings.loudnessMatch) {
+      this.dspSettings.loudnessMatch = false;
+      this._saveStorage(STORAGE_KEYS.DSP_SETTINGS, this.dspSettings);
+    }
+
     // Listeners for UI reactivity
     this.subscribers = new Set();
   }

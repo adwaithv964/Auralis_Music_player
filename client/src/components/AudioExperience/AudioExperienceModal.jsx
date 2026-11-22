@@ -121,7 +121,7 @@ export function AudioExperienceModal() {
             title="Normalizes enhanced volume level for fair acoustic comparison"
           >
             <span>⚖️ A/B Loudness Match:</span>
-            <strong>{dspSettings.loudnessMatch ? 'ON (-2.2 dB)' : 'OFF'}</strong>
+            <strong>{dspSettings.loudnessMatch ? 'ON (-0.7 dB)' : 'OFF (Full Dynamic Punch)'}</strong>
           </button>
         </div>
 

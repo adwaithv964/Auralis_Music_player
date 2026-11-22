@@ -19,22 +19,22 @@ export class OutputLimiter {
     this.inputNode = audioCtx.createGain();
     this.outputNode = audioCtx.createGain();
 
-    // 1. Headroom Gain Stage (-2.5 dB safety margin for DSP processing)
+    // 1. Headroom Gain Stage: Unity 0.0 dB for full dynamic punch and transparent volume
     this.headroomGain = audioCtx.createGain();
-    this.headroomGain.gain.value = 0.75; // -2.5 dB
+    this.headroomGain.gain.value = 1.0; // 0.0 dB (no artificial gain reduction)
 
     // 2. Anti-Aliased Soft Knee WaveShaper
     this.waveShaper = audioCtx.createWaveShaper();
-    this.waveShaper.curve = this._generateLimiterCurve(4096, 0.891); // 0.891 = -1.0 dBFS ceiling
+    this.waveShaper.curve = this._generateLimiterCurve(4096, 0.944); // 0.944 = -0.5 dBFS ceiling
     this.waveShaper.oversample = '4x'; // 4x oversampling for pristine anti-aliasing
 
-    // 3. Ultra-Fast Brickwall Safety Dynamics Compressor
+    // 3. Ultra-Fast Safety Dynamics Compressor (catches only genuine overs above -0.5 dBFS)
     this.safetyCompressor = audioCtx.createDynamicsCompressor();
-    this.safetyCompressor.threshold.value = -1.0; // -1 dBFS
-    this.safetyCompressor.knee.value = 1.0;
-    this.safetyCompressor.ratio.value = 20.0;     // Brickwall ratio
-    this.safetyCompressor.attack.value = 0.001;   // 1ms ultra-fast
-    this.safetyCompressor.release.value = 0.050;  // 50ms recovery
+    this.safetyCompressor.threshold.value = -0.5; // -0.5 dBFS (transparent safety ceiling)
+    this.safetyCompressor.knee.value = 3.0;
+    this.safetyCompressor.ratio.value = 12.0;
+    this.safetyCompressor.attack.value = 0.002;   // 2ms transparent attack
+    this.safetyCompressor.release.value = 0.040;  // 40ms fast recovery
 
     // 4. Output Master Ceiling Gain
     this.ceilingGain = audioCtx.createGain();

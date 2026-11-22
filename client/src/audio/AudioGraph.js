@@ -128,10 +128,9 @@ export class AudioGraph {
       this.dynamicsProcessor.updateParameters(dspSettings);
       this.outputLimiter.updateParameters(dspSettings);
 
-      // Loudness Matching A/B: If enabled, attenuate enhanced signal by 2.2 dB
-      // to equalize perceived loudness with the original flat signal
+      // Perceived Loudness Alignment: Never squash volume
       if (dspSettings.loudnessMatch) {
-        this.loudnessGain.gain.setTargetAtTime(0.77, t, rampTime); // -2.25 dB
+        this.loudnessGain.gain.setTargetAtTime(0.92, t, rampTime); // Gentle -0.7 dB max if explicitly requested
       } else {
         this.loudnessGain.gain.setTargetAtTime(1.0, t, rampTime);
       }

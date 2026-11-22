@@ -175,24 +175,24 @@ export class SpatialProcessor {
     // Mode-specific parameter mappings
     switch (mode) {
       case 'stereo':
-        // Pure unadulterated stereo
-        baseWidth = 1.0;
-        crossfeedLevel = 0.0;
-        reflectionLevel = 0.0;
+        // Balanced 3D stereo enhancement: keeps center punchy while opening stereo stage
+        baseWidth = 1.15;
+        crossfeedLevel = 0.08;
+        reflectionLevel = 0.12;
         break;
 
       case 'wide':
-        // Mid-Side widening with mono-centered bass
-        baseWidth = Math.max(1.1, (settings.stereoWidth || 1.25) * intensityMult);
-        crossfeedLevel = 0.05;
-        reflectionLevel = 0.1;
+        // Dolby-style wide soundstage: expansive 3D panorama with mono-centered bass
+        baseWidth = Math.max(1.20, (settings.stereoWidth || 1.30) * intensityMult);
+        crossfeedLevel = 0.06;
+        reflectionLevel = 0.18;
         break;
 
       case 'headphone_spatial':
-        // Out-of-head listening with gentle crossfeed & reflections
-        baseWidth = 1.15;
-        crossfeedLevel = Math.max(0.2, (settings.crossfeedAmount || 0.35) * intensityMult);
-        reflectionLevel = Math.max(0.15, (settings.spatialDepth || 0.3) * intensityMult);
+        // Out-of-head 3D holographic immersion for headphones (Dolby feel)
+        baseWidth = Math.max(1.25, (settings.stereoWidth || 1.35) * intensityMult);
+        crossfeedLevel = Math.max(0.12, (settings.crossfeedAmount || 0.20) * intensityMult);
+        reflectionLevel = Math.max(0.20, (settings.spatialDepth || 0.28) * intensityMult);
         break;
 
       case 'crossfeed':
@@ -222,10 +222,9 @@ export class SpatialProcessor {
         reflectionLevel = 0.0;
     }
 
-    // Apply M/S Width
-    // Side gain controls stereo spread; Mid gain is slightly lowered on extra-wide to preserve headroom
+    // Apply M/S Width: Side gain expands stereo field, Mid gain is preserved at 1.0 (vocal/kick punch)
     const sideGain = Math.max(0.0, Math.min(1.8, baseWidth));
-    const midGain  = baseWidth > 1.2 ? Math.max(0.85, 1.0 - (baseWidth - 1.0) * 0.15) : 1.0;
+    const midGain  = 1.0; // Keep lead vocal, snare, and kick drum 100% solid & uncompromised
 
     this.midWidthGain.gain.setTargetAtTime(midGain, t, rampTime);
     this.sideWidthGain.gain.setTargetAtTime(sideGain, t, rampTime);
