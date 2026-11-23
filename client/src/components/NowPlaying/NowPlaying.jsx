@@ -1,3 +1,4 @@
+import { useState }              from 'react';
 import { useApp }               from '../../context/AppContext';
 import { usePlayer }            from '../../context/PlayerContext';
 import { useAlbumThemeContext } from '../../context/AlbumThemeContext';
@@ -6,6 +7,7 @@ import { SourceBadge }          from '../common/SourceBadge';
 import { artProxy, fmt }        from '../../utils/audioHelpers';
 import { useSwipeSheet }        from '../../hooks/useSwipeSheet';
 import { WaveformProgress }     from '../WaveformProgress/WaveformProgress';
+import { MusicVideoCompanion }  from './MusicVideoCompanion';
 
 
 /**
@@ -18,7 +20,7 @@ export function NowPlaying() {
   const { mobileNowOpen, setMobileNowOpen, prefs, setPrefs, openPlaylistModal } = useApp();
   const {
     currentTrack,
-    isPlaying, seek,
+    isPlaying, seek, play, pause,
     progress, displayElapsed, displayDuration,
     shuffle, setShuffle,
     repeat,  setRepeat,
@@ -28,6 +30,8 @@ export function NowPlaying() {
   } = usePlayer();
   const { openAudioExperience, dspSettings, eqSettings, activeProfileData } = useAudioEngineContext();
   const { theme } = useAlbumThemeContext();
+
+  const [activeTab, setActiveTab] = useState(prefs.nowPlayingTab || 'now');
 
   // Inline style helpers derived from the dynamic theme
   const accentStyle    = { '--now-accent': theme.vibrant };
@@ -89,72 +93,114 @@ export function NowPlaying() {
             </button>
           </div>
 
-          {/* ── Album artwork ── */}
-          <div
-            className={`spotify-now-art-wrapper${isPlaying ? ' spotify-now-art-wrapper--playing' : ' spotify-now-art-wrapper--paused'}`}
-            style={accentStyle}
-          >
-            {/* Glow ring behind artwork — outside overflow:hidden so it bleeds out */}
-            <div className="spotify-now-art-glow" style={glowStyle} />
-            <div className="spotify-now-art">
-              {currentTrack.artworkUrl ? (
-                <img
-                  src={artProxy(currentTrack.artworkUrl)}
-                  alt={currentTrack.title}
-                  className="spotify-now-art-img"
-                  key={currentTrack.artworkUrl}
-                />
-              ) : (
-                <div className="spotify-now-art-fallback" />
-              )}
-              {resolvingId && (
-                <div className="spotify-now-art-loading">
-                  <div className="spotify-spinner" />
-                  <span>Loading full track…</span>
+          {/* ── View Tab Switcher: Now Playing vs Music Video ── */}
+          <div className="now-panel-view-tabs">
+            <button
+              className={`now-panel-view-tab${activeTab === 'now' ? ' active' : ''}`}
+              onClick={() => setActiveTab('now')}
+              title="Show Album Art & Audio Visualizer"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
+              <span>Now Playing</span>
+            </button>
+            <button
+              className={`now-panel-view-tab${activeTab === 'video' ? ' active' : ''}`}
+              onClick={() => setActiveTab('video')}
+              title="Show Synced YouTube Music Video"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <rect x="2" y="4" width="20" height="15" rx="2.5" />
+                <polygon points="10 8 16 11.5 10 15 10 8" fill="currentColor" stroke="none" />
+              </svg>
+              <span>Music Video</span>
+            </button>
+          </div>
+
+          {activeTab === 'video' ? (
+            <MusicVideoCompanion
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              displayElapsed={displayElapsed}
+              displayDuration={displayDuration}
+              pause={pause}
+              play={play}
+              seek={seek}
+              theme={theme}
+            />
+          ) : (
+            <>
+              {/* ── Album artwork ── */}
+              <div
+                className={`spotify-now-art-wrapper${isPlaying ? ' spotify-now-art-wrapper--playing' : ' spotify-now-art-wrapper--paused'}`}
+                style={accentStyle}
+              >
+                {/* Glow ring behind artwork — outside overflow:hidden so it bleeds out */}
+                <div className="spotify-now-art-glow" style={glowStyle} />
+                <div className="spotify-now-art">
+                  {currentTrack.artworkUrl ? (
+                    <img
+                      src={artProxy(currentTrack.artworkUrl)}
+                      alt={currentTrack.title}
+                      className="spotify-now-art-img"
+                      key={currentTrack.artworkUrl}
+                    />
+                  ) : (
+                    <div className="spotify-now-art-fallback" />
+                  )}
+                  {resolvingId && (
+                    <div className="spotify-now-art-loading">
+                      <div className="spotify-spinner" />
+                      <span>Loading full track…</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* ─ Track info + ♥ + ＋ (Spotify layout) ─ */}
-          <div className="spotify-now-info">
-            <div className="spotify-now-text">
-              <strong className="spotify-now-title">{currentTrack.title}</strong>
-              <span className="spotify-now-artist">{currentTrack.artist}</span>
-              {currentTrack.album && <span className="spotify-now-album">{currentTrack.album}</span>}
-            </div>
+              {/* ─ Track info + ♥ + ＋ (Spotify layout) ─ */}
+              <div className="spotify-now-info">
+                <div className="spotify-now-text">
+                  <strong className="spotify-now-title">{currentTrack.title}</strong>
+                  <span className="spotify-now-artist">{currentTrack.artist}</span>
+                  {currentTrack.album && <span className="spotify-now-album">{currentTrack.album}</span>}
+                </div>
 
-            {/* Right-side action icons: ♥  +  ··· */}
-            <div className="now-info-actions">
-              {/* Heart — save to liked */}
-              <button
-                className={`now-icon-btn${isFav ? ' now-icon-btn--active' : ''}`}
-                onClick={() => toggleFavorite(currentTrack.id)}
-                title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-              >
-                <svg viewBox="0 0 24 24"
-                  fill={isFav ? 'currentColor' : 'none'}
-                  stroke="currentColor" strokeWidth="1.8"
-                  width="24" height="24">
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                </svg>
-              </button>
+                {/* Right-side action icons: ♥  +  ··· */}
+                <div className="now-info-actions">
+                  {/* Heart — save to liked */}
+                  <button
+                    className={`now-icon-btn${isFav ? ' now-icon-btn--active' : ''}`}
+                    onClick={() => toggleFavorite(currentTrack.id)}
+                    title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+                  >
+                    <svg viewBox="0 0 24 24"
+                      fill={isFav ? 'currentColor' : 'none'}
+                      stroke="currentColor" strokeWidth="1.8"
+                      width="24" height="24">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                  </button>
 
-              {/* Plus — add to playlist */}
-              <button
-                className="now-icon-btn now-icon-btn--plus"
-                onClick={() => openPlaylistModal(currentTrack)}
-                title="Add to playlist"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2" width="22" height="22">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="8" x2="12" y2="16"/>
-                  <line x1="8" y1="12" x2="16" y2="12"/>
-                </svg>
-              </button>
-            </div>
-          </div>
+                  {/* Plus — add to playlist */}
+                  <button
+                    className="now-icon-btn now-icon-btn--plus"
+                    onClick={() => openPlaylistModal(currentTrack)}
+                    title="Add to playlist"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2" width="22" height="22">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="16"/>
+                      <line x1="8" y1="12" x2="16" y2="12"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* ── Waveform Progress ── */}
           <WaveformProgress

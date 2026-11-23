@@ -214,6 +214,20 @@ export function Preferences({ prefs, setPrefs, onClose }) {
 
               <PrefSection title="Listening controls">
                 <SettingRow
+                  icon="🎬"
+                  title="YouTube Music Video Companion"
+                  desc="Automatically discover and display verified official music videos in Now Playing."
+                  checked={prefs.videoCompanionEnabled !== false}
+                  onChange={v => set('videoCompanionEnabled', v)}
+                />
+                <SettingRow
+                  icon="🔄"
+                  title="Auto-sync companion playback"
+                  desc="Keep the muted video aligned with Auralis audio playback and seeks."
+                  checked={prefs.videoAutoSync !== false}
+                  onChange={v => set('videoAutoSync', v)}
+                />
+                <SettingRow
                   icon="▶"
                   title="Autoplay"
                   desc="Similar content will play when what you're listening to ends."

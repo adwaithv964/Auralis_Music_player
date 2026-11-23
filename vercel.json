@@ -18,6 +18,10 @@
       "destination": "/api/saavn-india-gateway"
     },
     {
+      "source": "/api/youtube/video-match",
+      "destination": "/api/youtube-video-match"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://auralis-music-player-ta1r.onrender.com/api/:path*"
     }

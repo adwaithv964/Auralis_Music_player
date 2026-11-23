@@ -47,6 +47,7 @@ const {
   searchSaavnTracks,
   resolveVerifiedAudioStream,
 } = require('./searchEngine');
+const { findBestMusicVideo } = require('./videoCompanionService');
 const jwt        = require('jsonwebtoken');
 const bcrypt     = require('bcryptjs');
 const cookieParser = require('cookie-parser');
@@ -1058,6 +1059,26 @@ app.get("/api/youtube/resolve", wrap(async (req, res) => {
 
   console.warn(`[resolve][${reqId}] No verified stream found`);
   return res.status(404).json({ error: "Track unavailable: no verified audio stream found for requested song", requestId: reqId });
+}));
+
+// ── Video Companion Match: Resolve track to verified official YouTube video ───
+app.get("/api/youtube/video-match", wrap(async (req, res) => {
+  const reqId = req.headers['x-request-id'] || req.query.requestId || Math.random().toString(36).slice(2, 8);
+  res.setHeader('X-Request-Id', reqId);
+  const { title, artist, album, duration, language, trackId } = req.query;
+  if (!title) return res.status(400).json({ error: "title required", requestId: reqId });
+
+  const track = {
+    id: trackId,
+    title,
+    artist: artist || '',
+    album: album || '',
+    duration: duration ? parseInt(duration, 10) : 0,
+    language: language || '',
+  };
+
+  const match = await findBestMusicVideo(track);
+  return res.json({ ...match, requestId: reqId });
 }));
 
 // ── Direct lookup by title+artist+album with strict verification ────────────
