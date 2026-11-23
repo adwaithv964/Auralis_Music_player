@@ -143,6 +143,7 @@ function verifyMusicVideoMatch(track, candidate) {
     return { matches: false, reason: 'Insufficient title token match' };
   }
 
+  // 5. Movie / Origin Context Check
   const movie = extractMovie(track.title, track.album);
   const normMovie = normalize(movie);
   let movieMatches = false;
@@ -152,7 +153,21 @@ function verifyMusicVideoMatch(track, candidate) {
     movieMatches = matchedMovie.length > 0 || normCandTitle.includes(normMovie) || /\bom\b/i.test(candTitle);
   }
 
-  let classification = 'Best Match';
+  // 6. Artist Overlap Check
+  const normTargetArtist = normalize(track.artist || '');
+  let artistMatches = false;
+  if (normTargetArtist) {
+    const artistTokens = normTargetArtist.split(' ').filter(t => t.length > 2);
+    const matchedArtist = artistTokens.filter(t => candTokens.has(t) || normCandChannel.includes(t));
+    artistMatches = matchedArtist.length > 0;
+  }
+
+  // Strict Validation: If movie is specified, candidate must match movie OR artist
+  if (normMovie && !movieMatches && !artistMatches) {
+    return { matches: false, reason: 'Movie/album origin mismatch' };
+  }
+
+  // 7. Classification & Confidence Scoring
   let score = 50;
 
   const isOfficialChannel = Array.from(OFFICIAL_CHANNELS).some(ch => normCandChannel.includes(ch)) ||

@@ -286,3 +286,42 @@ async function testLive() {
 }
 
 testLive();
+
+const t_debug = {
+  title: 'Veera Veera (From "O.M: Operation Mole - Telugu")',
+  artist: 'Sai Abhyankkar',
+  album: 'O.M: Operation Mole - Telugu',
+  duration: 236,
+  language: 'Telugu',
+};
+const c_debug = {
+  id: '0aavCtXiiX4',
+  title: 'Veera Raja Veera - Full Video | PS2 Tamil | @ARRahman | Mani Ratnam | Jayam Ravi, Sobhita Dhulipala',
+  channel: 'Tips Tamil',
+  length: '3:58',
+};
+console.log('\n--- DEBUG PS2 CANDIDATE ---');
+console.log(verifyMusicVideoMatch(t_debug, c_debug));
+
+
+const apiHandler = require('./api/youtube-video-match');
+
+async function testApiHandler() {
+  const req = {
+    query: {
+      title: 'Veera Veera (From "O.M: Operation Mole - Telugu")',
+      artist: 'Sai Abhyankkar',
+      album: 'O.M: Operation Mole - Telugu',
+      duration: '236',
+      language: 'Telugu',
+    }
+  };
+  const res = {
+    setHeader: () => {},
+    status: (code) => ({
+      json: (data) => console.log('API Handler returned (' + code + '):', data),
+    }),
+  };
+  await apiHandler(req, res);
+}
+testApiHandler();
