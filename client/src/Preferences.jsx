@@ -271,10 +271,11 @@ export function Preferences({ prefs, setPrefs, onClose }) {
                       <div key={band} className="pref-eq-band">
                         <span className="pref-eq-value">{val > 0 ? `+${val.toFixed(1)}` : val.toFixed(1)}</span>
                         <input
-                          type="range" min="-12" max="12" step="0.5" orient="vertical"
+                          type="range" min="-12" max="12" step="0.5"
                           value={val}
                           disabled={!eqSettings.eqEnabled}
                           className="pref-eq-slider"
+                          style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
                           onChange={e => setEqBand(i, e.target.value)}
                         />
                         <span className="pref-eq-label">{band}</span>

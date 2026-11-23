@@ -2,8 +2,8 @@
  * client/src/components/NowPlaying/MusicVideoCompanion.jsx
  *
  * Spotify-Inspired Original Music Video Companion Component for Auralis Music.
- * Displays the verified official YouTube music video synchronized with Auralis audio,
- * preserving all existing sound engine settings with zero duplicate audio.
+ * Displays verified official YouTube music videos synchronized with Auralis audio,
+ * with Spotify-style Full Screen Video Experience and seamless dual-playback modes.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -42,6 +42,16 @@ export function MusicVideoCompanion({
   pause,
   play,
   seek,
+  handlePrev,
+  handleNext,
+  shuffle,
+  setShuffle,
+  repeat,
+  setRepeat,
+  prefs,
+  setPrefs,
+  isFav,
+  toggleFavorite,
   theme,
 }) {
   const [videoInfo, setVideoInfo] = useState(null);
@@ -51,12 +61,13 @@ export function MusicVideoCompanion({
   // 'companion' = Auralis Hi-Fi audio + muted synced video (default)
   // 'youtube'   = YouTube audio + video (Auralis audio paused)
   const [playbackMode, setPlaybackMode] = useState('companion');
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   const playerRef = useRef(null);
-  const containerRef = useRef(null);
   const currentVideoIdRef = useRef(null);
   const activeTrackIdRef = useRef(null);
+  const controlsTimeoutRef = useRef(null);
 
   // ── 1. Fetch matching video whenever currentTrack changes ──────────────
   useEffect(() => {
@@ -155,10 +166,8 @@ export function MusicVideoCompanion({
               }
             }
           },
-          onStateChange: (e) => {
-            // YT.PlayerState: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+          onStateChange: () => {
             if (playbackMode === 'companion') {
-              // Ensure video never accidentally produces audible sound in companion mode
               if (playerRef.current && !playerRef.current.isMuted()) {
                 playerRef.current.mute();
               }
@@ -171,10 +180,6 @@ export function MusicVideoCompanion({
         },
       });
     });
-
-    return () => {
-      // Cleanup on unmount
-    };
   }, [videoInfo?.videoId, currentTrack?.id]);
 
   // ── 3. Synchronization: Play/Pause state in Companion Mode ───────────────
@@ -195,7 +200,6 @@ export function MusicVideoCompanion({
   useEffect(() => {
     if (playbackMode !== 'companion' || !playerReady || !playerRef.current) return;
 
-    // Periodic check every 1.5s for seek or significant timing drift (> 2.0s)
     const interval = setInterval(() => {
       if (!isPlaying || !playerRef.current || typeof playerRef.current.getCurrentTime !== 'function') return;
       try {
@@ -210,13 +214,52 @@ export function MusicVideoCompanion({
     return () => clearInterval(interval);
   }, [isPlaying, playerReady, playbackMode, displayElapsed]);
 
-  // ── 5. Mode Switch Handlers ──────────────────────────────────────────────
+  // ── 5. Fullscreen auto-hide mouse controls (Spotify Style) ───────────────
+  const handleMouseMove = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isFullScreen) {
+        setShowControls(false);
+      }
+    }, 3000);
+  }, [isFullScreen]);
+
+  // Escape key exits fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullScreen) {
+        setIsFullScreen(false);
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen]);
+
+  // Toggle fullscreen
+  const toggleFullScreen = () => {
+    const next = !isFullScreen;
+    setIsFullScreen(next);
+    setShowControls(true);
+    if (next) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
+
+  // ── 6. Mode Switch Handlers ──────────────────────────────────────────────
   const handleSwitchToYouTubeAudio = useCallback(() => {
     if (!playerRef.current) return;
     try {
-      // 1. Pause Auralis audio engine
       pause();
-      // 2. Unmute YouTube player and play
       playerRef.current.unMute();
       playerRef.current.playVideo();
       setPlaybackMode('youtube');
@@ -228,17 +271,14 @@ export function MusicVideoCompanion({
   const handleSwitchToCompanionAudio = useCallback(() => {
     if (!playerRef.current) return;
     try {
-      // 1. Mute YouTube player
       playerRef.current.mute();
       const videoTime = (typeof playerRef.current.getCurrentTime === 'function')
         ? playerRef.current.getCurrentTime()
         : displayElapsed;
 
-      // 2. Seek Auralis audio to current video time
       if (displayDuration > 0) {
         seek((videoTime / displayDuration) * 100);
       }
-      // 3. Resume Auralis audio
       play();
       setPlaybackMode('companion');
     } catch (err) {
@@ -246,7 +286,6 @@ export function MusicVideoCompanion({
     }
   }, [play, seek, displayDuration, displayElapsed]);
 
-  // Classification badge color styling
   const getBadgeStyle = (classification) => {
     switch (classification) {
       case 'Official Original Video':
@@ -282,29 +321,36 @@ export function MusicVideoCompanion({
     }
   };
 
-  return (
-    <div className={`video-companion-root${isExpanded ? ' video-companion-root--expanded' : ''}`}>
-      {/* ── Mode Status Banner ── */}
-      <div className="video-mode-banner">
-        <div className="video-mode-left">
-          <span className={`video-mode-indicator ${playbackMode === 'companion' ? 'indicator-companion' : 'indicator-youtube'}`} />
-          <span className="video-mode-text">
-            {playbackMode === 'companion'
-              ? '🎧 Auralis Hi-Fi Audio (Video Muted)'
-              : '🔊 YouTube Audio (Auralis DSP Paused)'}
-          </span>
-        </div>
-        <button
-          className="video-mode-switch-btn"
-          onClick={playbackMode === 'companion' ? handleSwitchToYouTubeAudio : handleSwitchToCompanionAudio}
-          title={playbackMode === 'companion' ? 'Switch to YouTube Audio' : 'Switch back to Auralis Hi-Fi Audio'}
-        >
-          {playbackMode === 'companion' ? 'Watch with Audio' : 'Return to Hi-Fi'}
-        </button>
-      </div>
+  const currentVolume = prefs?.volume ?? 62;
 
-      {/* ── Main Video Display Area ── */}
-      <div className="video-player-container" ref={containerRef}>
+  return (
+    <div
+      className={`video-companion-root${isFullScreen ? ' video-companion-root--fullscreen' : ''}`}
+      onMouseMove={isFullScreen ? handleMouseMove : undefined}
+    >
+      {/* ── Normal View: Mode Status Banner ── */}
+      {!isFullScreen && (
+        <div className="video-mode-banner">
+          <div className="video-mode-left">
+            <span className={`video-mode-indicator ${playbackMode === 'companion' ? 'indicator-companion' : 'indicator-youtube'}`} />
+            <span className="video-mode-text">
+              {playbackMode === 'companion'
+                ? '🎧 Auralis Hi-Fi (Video Muted)'
+                : '🔊 YouTube Audio'}
+            </span>
+          </div>
+          <button
+            className="video-mode-switch-btn"
+            onClick={playbackMode === 'companion' ? handleSwitchToYouTubeAudio : handleSwitchToCompanionAudio}
+            title={playbackMode === 'companion' ? 'Switch to YouTube Audio' : 'Switch back to Auralis Hi-Fi Audio'}
+          >
+            {playbackMode === 'companion' ? 'Watch with Audio' : 'Return to Hi-Fi'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Main Video Display Area (Never unmounts during fullscreen) ── */}
+      <div className="video-player-container">
         {loading ? (
           <div className="video-player-placeholder video-loading-state">
             <div className="spotify-spinner" />
@@ -348,30 +394,187 @@ export function MusicVideoCompanion({
           </div>
         )}
 
-        {/* Expand / Minimize toggle button */}
-        <button
-          className="video-expand-btn"
-          onClick={() => setIsExpanded((prev) => !prev)}
-          title={isExpanded ? 'Restore normal view' : 'Expand video viewer'}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-            {isExpanded ? (
-              <path d="M4 14h6v6m10-10h-6V4m0 6l7-7M10 14l-7 7" />
-            ) : (
+        {/* Normal mode: Fullscreen trigger button */}
+        {!isFullScreen && videoInfo && (
+          <button
+            className="video-expand-btn"
+            onClick={toggleFullScreen}
+            title="Full Screen (Spotify Experience)"
+            aria-label="Full Screen Video"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M15 3h6v6m-6 5l7 7m0-6v6h-6M9 21H3v-6m0 0l7-7" />
-            )}
-          </svg>
-        </button>
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* ── Video Metadata & Attribution Card ── */}
-      {videoInfo && (
+      {/* ── Spotify Full Screen Chrome Overlay ── */}
+      {isFullScreen && (
+        <div className={`video-fs-overlay${!showControls ? ' video-fs-overlay--hidden' : ''}`}>
+          {/* Top Bar */}
+          <div className="video-fs-top-bar">
+            <div className="video-fs-info">
+              <strong className="video-fs-title">{currentTrack?.title}</strong>
+              <div className="video-fs-sub">
+                <span>{currentTrack?.artist}</span>
+                {currentTrack?.album && <span>• {currentTrack.album}</span>}
+                {videoInfo && (
+                  <span className="video-fs-badge" style={getBadgeStyle(videoInfo.classification)}>
+                    ✦ {videoInfo.classification}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                className="video-mode-switch-btn"
+                style={{ fontSize: '0.8rem', padding: '8px 14px', borderRadius: 20 }}
+                onClick={playbackMode === 'companion' ? handleSwitchToYouTubeAudio : handleSwitchToCompanionAudio}
+              >
+                {playbackMode === 'companion' ? '🔊 Switch to YouTube Audio' : '🎧 Switch to Auralis Hi-Fi Audio'}
+              </button>
+              <button
+                className="video-fs-btn"
+                onClick={toggleFullScreen}
+                title="Exit Full Screen (Esc)"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom Bar: Full Transport Controls */}
+          <div className="video-fs-bottom-bar">
+            {/* Scrubber */}
+            <div className="video-fs-progress-wrap">
+              <span className="video-fs-time">{fmt(displayElapsed)}</span>
+              <div className="video-fs-slider-box">
+                <input
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value={displayDuration > 0 ? Math.round((displayElapsed / displayDuration) * 1000) : 0}
+                  onChange={(e) => seek?.(e.target.value / 10)}
+                  className="video-fs-slider"
+                  style={{ '--seek-color': theme?.vibrant || '#67f0b7' }}
+                  aria-label="Seek"
+                />
+              </div>
+              <span className="video-fs-time">{fmt(displayDuration)}</span>
+            </div>
+
+            {/* Transport & Volume Controls */}
+            <div className="video-fs-controls-row">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {isFav !== undefined && (
+                  <button
+                    className="video-fs-btn-sm"
+                    onClick={() => toggleFavorite?.(currentTrack?.id)}
+                    title={isFav ? 'Liked' : 'Like'}
+                    style={{ color: isFav ? '#67f0b7' : '#fff' }}
+                  >
+                    <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" width="20" height="20">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                  </button>
+                )}
+                {setShuffle && (
+                  <button
+                    className={`video-fs-btn-sm${shuffle ? ' active' : ''}`}
+                    onClick={() => setShuffle((s) => !s)}
+                    title="Shuffle"
+                    style={{ color: shuffle ? '#67f0b7' : '#fff' }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                      <path d="M16 3h5v5M4 20l16-16M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Main Transport */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <button className="video-fs-ctrl-btn" onClick={handlePrev} title="Previous">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+                  </svg>
+                </button>
+                <button
+                  className="video-fs-play-btn"
+                  onClick={isPlaying ? pause : play}
+                  title={isPlaying ? 'Pause' : 'Play'}
+                  style={{ background: theme?.vibrant || '#67f0b7' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="#000" width="28" height="28">
+                    {isPlaying ? (
+                      <>
+                        <rect x="6" y="4" width="4" height="16" />
+                        <rect x="14" y="4" width="4" height="16" />
+                      </>
+                    ) : (
+                      <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+                    )}
+                  </svg>
+                </button>
+                <button className="video-fs-ctrl-btn" onClick={handleNext} title="Next">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M6 18l8.5-6L6 6v12zm2-6 8.5 6V6l-8.5 6zm8.5-6h2v12h-2z" />
+                  </svg>
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                {setRepeat && (
+                  <button
+                    className={`video-fs-btn-sm${repeat ? ' active' : ''}`}
+                    onClick={() => setRepeat((r) => !r)}
+                    title="Repeat"
+                    style={{ color: repeat ? '#67f0b7' : '#fff' }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                      <polyline points="17 1 21 5 17 9" />
+                      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                      <polyline points="7 23 3 19 7 15" />
+                      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                    </svg>
+                  </button>
+                )}
+                {/* Volume */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  </svg>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={currentVolume}
+                    className="video-fs-volume-slider"
+                    onChange={(e) => setPrefs?.((p) => ({ ...p, volume: Number(e.target.value) }))}
+                  />
+                </div>
+                {/* Exit full screen */}
+                <button className="video-fs-btn-sm" onClick={toggleFullScreen} title="Exit Full Screen">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 14h6v6m10-10h-6V4m0 6l7-7M10 14l-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Normal View: Video Metadata & Attribution Card ── */}
+      {!isFullScreen && videoInfo && (
         <div className="video-meta-card">
           <div className="video-meta-row-top">
-            <span
-              className="video-class-badge"
-              style={getBadgeStyle(videoInfo.classification)}
-            >
+            <span className="video-class-badge" style={getBadgeStyle(videoInfo.classification)}>
               ✦ {videoInfo.classification}
             </span>
             <span className="video-verified-badge">

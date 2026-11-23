@@ -215,7 +215,9 @@ class AudioEngineController {
         await this.ctx.resume();
         this.store.updateRuntimeState({ audioContextState: 'running' });
       } catch (err) {
-        console.warn('[Auralis DSP] AudioContext resume failed:', err.message);
+        if (err.name !== 'NotAllowedError') {
+          console.warn('[Auralis DSP] AudioContext resume failed:', err.message);
+        }
       }
     }
   }

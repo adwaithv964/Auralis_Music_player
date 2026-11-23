@@ -199,11 +199,30 @@ export function useAudioEngine(currentTrack, preferences) {
     audioRef.current.volume = Math.min(1, Math.max(0, (preferences?.volume ?? 62) / 100));
   }, [preferences?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Passive first-user-gesture unlock for AudioContext
+  useEffect(() => {
+    const unlockOnGesture = () => {
+      audioEngine.resume();
+    };
+    window.addEventListener('click', unlockOnGesture, { once: true, passive: true });
+    window.addEventListener('keydown', unlockOnGesture, { once: true, passive: true });
+    window.addEventListener('touchstart', unlockOnGesture, { once: true, passive: true });
+    return () => {
+      window.removeEventListener('click', unlockOnGesture);
+      window.removeEventListener('keydown', unlockOnGesture);
+      window.removeEventListener('touchstart', unlockOnGesture);
+    };
+  }, []);
+
   const play = useCallback(() => {
     const audio = audioRef.current;
     if (!audio.src) return;
     audioEngine.resume();
-    const doPlay = () => audio.play().catch(e => console.warn('[play]', e.message));
+    const doPlay = () => audio.play().catch(e => {
+      if (e.name !== 'NotAllowedError') {
+        console.warn('[play]', e.message);
+      }
+    });
     if (audio.readyState < 2) {
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);

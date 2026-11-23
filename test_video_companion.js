@@ -325,3 +325,16 @@ async function testApiHandler() {
   await apiHandler(req, res);
 }
 testApiHandler();
+
+async function testSpecialDuty() {
+  console.log('\n--- O.M SPECIAL DUTY ---');
+  const r = await findVideoLive({
+    title: 'O.M Special Duty (From "O.M: Operation Mole")',
+    artist: 'Sai Abhyankkar',
+    album: 'O.M: Operation Mole',
+    duration: 108,
+    language: 'Tamil',
+  });
+  console.log(r);
+}
+testSpecialDuty();

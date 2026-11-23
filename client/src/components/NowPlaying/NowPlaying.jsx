@@ -129,6 +129,16 @@ export function NowPlaying() {
               pause={pause}
               play={play}
               seek={seek}
+              handlePrev={handlePrev}
+              handleNext={handleNext}
+              shuffle={shuffle}
+              setShuffle={setShuffle}
+              repeat={repeat}
+              setRepeat={setRepeat}
+              prefs={prefs}
+              setPrefs={setPrefs}
+              isFav={isFav}
+              toggleFavorite={toggleFavorite}
               theme={theme}
             />
           ) : (

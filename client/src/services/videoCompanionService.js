@@ -36,11 +36,15 @@ export async function fetchMusicVideoMatch(track) {
   const lang = (track.language || '').toLowerCase();
   const cacheKey = `${track.id || ''}:${clean}:${movie}:${artist}:${lang}`;
 
-  // 1. Check local client cache
+  // 1. Check local client cache (only keep negative hits for 30s so retries work)
   const cache = getLocalCache();
   const cachedEntry = cache[cacheKey];
-  if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS)) {
-    return cachedEntry.data;
+  if (cachedEntry) {
+    const isPositive = cachedEntry.data?.found;
+    const ttl = isPositive ? CACHE_TTL_MS : 30_000;
+    if (Date.now() - cachedEntry.timestamp < ttl) {
+      return cachedEntry.data;
+    }
   }
 
   // 2. Abort any previous in-flight video search request
@@ -59,9 +63,24 @@ export async function fetchMusicVideoMatch(track) {
   });
 
   try {
-    const resp = await fetch(`/api/youtube/video-match?${params.toString()}`, {
+    let resp = await fetch(`/api/youtube/video-match?${params.toString()}`, {
       signal: activeAbortController.signal,
     });
+
+    // If local dev server returned 404 (e.g. backend not yet restarted on localhost),
+    // fallback seamlessly to the deployed Vercel production gateway
+    if (resp.status === 404 || !resp.ok) {
+      try {
+        const prodFallback = await fetch(`https://auralis-music-player.vercel.app/api/youtube/video-match?${params.toString()}`, {
+          signal: activeAbortController.signal,
+        });
+        if (prodFallback.ok) {
+          resp = prodFallback;
+        }
+      } catch (e) {
+        // network or CORS error on fallback, keep original resp
+      }
+    }
 
     if (!resp.ok) {
       return { found: false, message: 'Official music video not available' };

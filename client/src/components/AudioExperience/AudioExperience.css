@@ -493,8 +493,8 @@
 }
 
 .dsp-eq-slider-vertical {
-  -webkit-appearance: slider-vertical;
-  writing-mode: bt-lr;
+  writing-mode: vertical-lr;
+  direction: rtl;
   width: 18px;
   height: 130px;
   cursor: pointer;
