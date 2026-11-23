@@ -1,6 +1,6 @@
 {
   "name": "auralis-music-player",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Glass music player with a local music engine and database API.",
   "scripts": {
