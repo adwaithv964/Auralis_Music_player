@@ -5,8 +5,9 @@
  * Fetches verified music videos with client-side caching and stale response protection.
  */
 
-const LOCAL_CACHE_KEY = 'auralis:video_cache_v1';
+const LOCAL_CACHE_KEY = 'auralis:video_cache_v2';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MEMORY_NEGATIVE_CACHE = new Map(); // key -> timestamp (short lived, 5s)
 
 function getLocalCache() {
   try {
@@ -36,15 +37,19 @@ export async function fetchMusicVideoMatch(track) {
   const lang = (track.language || '').toLowerCase();
   const cacheKey = `${track.id || ''}:${clean}:${movie}:${artist}:${lang}`;
 
-  // 1. Check local client cache (only keep negative hits for 30s so retries work)
+  // 1. Check persistent positive cache first
   const cache = getLocalCache();
   const cachedEntry = cache[cacheKey];
-  if (cachedEntry) {
-    const isPositive = cachedEntry.data?.found;
-    const ttl = isPositive ? CACHE_TTL_MS : 30_000;
-    if (Date.now() - cachedEntry.timestamp < ttl) {
+  if (cachedEntry && cachedEntry.data?.found) {
+    if (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS) {
       return cachedEntry.data;
     }
+  }
+
+  // 1b. Check short-lived in-memory negative cache (5 seconds max)
+  const negTime = MEMORY_NEGATIVE_CACHE.get(cacheKey);
+  if (negTime && Date.now() - negTime < 5000) {
+    return { found: false, message: 'Official music video not available' };
   }
 
   // 2. Abort any previous in-flight video search request
@@ -88,18 +93,23 @@ export async function fetchMusicVideoMatch(track) {
 
     const data = await resp.json();
 
-    // Cache the result (including negative results to prevent quota exhaustion)
-    cache[cacheKey] = {
-      timestamp: Date.now(),
-      data,
-    };
+    if (data && data.found) {
+      // Cache verified positive result
+      cache[cacheKey] = {
+        timestamp: Date.now(),
+        data,
+      };
 
-    // Keep cache bounded to 150 entries
-    const keys = Object.keys(cache);
-    if (keys.length > 150) {
-      delete cache[keys[0]];
+      // Keep cache bounded to 150 entries
+      const keys = Object.keys(cache);
+      if (keys.length > 150) {
+        delete cache[keys[0]];
+      }
+      setLocalCache(cache);
+    } else {
+      // Negative result kept in memory for only 5s to allow fast retry if metadata loads or network recovers
+      MEMORY_NEGATIVE_CACHE.set(cacheKey, Date.now());
     }
-    setLocalCache(cache);
 
     return data;
   } catch (err) {
