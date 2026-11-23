@@ -2,11 +2,15 @@
  * audio/AudioGraph.js
  * Authoritative Web Audio Signal Routing Graph for Auralis Music.
  * 
- * Guarantees:
- *   1. Genuine bypass paths for both Auralis Sound Engine and Advanced Equalizer.
- *   2. Zero-pop parameter updates via AudioParam automation.
- *   3. Real-time spectrum, true-peak, and stereo phase correlation telemetry.
- *   4. Exactly one connection to AudioDestinationNode.
+ * Truth Table Routing Guarantees:
+ *   1. Master Overall Audio Processing Switch:
+ *      When OFF: 100% bit-transparent dry bypass directly to destination.
+ *   2. Independent Sound Engine & Adaptive Track Intelligence:
+ *      Adaptive can run when Engine is OFF; both can run together.
+ *   3. Independent Equalizer & Spatial Audio Virtualization:
+ *      Equalizer and Spatial stages remain switchable when Overall is ON.
+ *   4. Zero-pop parameter updates via AudioParam automation.
+ *   5. Real-time telemetry: spectrum, true-peak, acoustic health and stereo phase correlation.
  */
 
 import { BassProcessor }         from './BassProcessor';
@@ -23,55 +27,69 @@ export class AudioGraph {
   constructor(audioCtx) {
     this.ctx = audioCtx;
 
-    // ── Input Stage ────────────────────────────────────────────────
+    // ── 1. Input Stage ─────────────────────────────────────────────
     this.inputNode     = audioCtx.createGain();
     this.inputGainNode = audioCtx.createGain();
     this.inputGainNode.gain.value = 1.0;
     this.inputNode.connect(this.inputGainNode);
 
-    // ── Engine Processing Chain ────────────────────────────────────
+    // ── 2. Master Bypass Crossfader (Truth Table Overall Switch) ───
+    this.masterDryGain = audioCtx.createGain(); // 100% Bit-transparent native stream
+    this.masterWetGain = audioCtx.createGain(); // Processed DSP path
+    this.masterDryGain.gain.value = 0.0;
+    this.masterWetGain.gain.value = 1.0;
+
+    this.inputGainNode.connect(this.masterDryGain);
+
+    // ── 3. Engine Processing Chain ─────────────────────────────────
     this.bassProcessor        = new BassProcessor(audioCtx);
     this.vocalTrebleProcessor = new VocalTrebleProcessor(audioCtx);
-    this.spatialProcessor     = new SpatialProcessor(audioCtx);
     this.dynamicsProcessor    = new DynamicsProcessor(audioCtx);
     this.outputLimiter        = new OutputLimiter(audioCtx);
 
-    // Connect Engine modules in series
+    // Wet Engine Modules in series
     this.inputGainNode.connect(this.bassProcessor.inputNode);
     this.bassProcessor.outputNode.connect(this.vocalTrebleProcessor.inputNode);
-    this.vocalTrebleProcessor.outputNode.connect(this.spatialProcessor.inputNode);
-    this.spatialProcessor.outputNode.connect(this.dynamicsProcessor.inputNode);
+    this.vocalTrebleProcessor.outputNode.connect(this.dynamicsProcessor.inputNode);
     this.dynamicsProcessor.outputNode.connect(this.outputLimiter.inputNode);
 
-    // ── Engine Wet / Dry Bypass Crossfader ─────────────────────────
+    // ── 4. Engine Wet / Dry Bypass Crossfader ──────────────────────
     this.engineWetGain = audioCtx.createGain();
     this.engineDryGain = audioCtx.createGain();
     this.engineWetGain.gain.value = 0.0;
     this.engineDryGain.gain.value = 1.0; // Default: bypassed
 
     this.outputLimiter.outputNode.connect(this.engineWetGain);
-    this.inputGainNode.connect(this.engineDryGain); // Pure dry bypass path
+    this.inputGainNode.connect(this.engineDryGain); // Engine bypass path
 
     // Sum Engine output (wet or dry)
     this.engineSumNode = audioCtx.createGain();
     this.engineWetGain.connect(this.engineSumNode);
     this.engineDryGain.connect(this.engineSumNode);
 
-    // ── Advanced Equalizer Stage (Independent) ─────────────────────
-    this.equalizerProcessor = new EqualizerProcessor(audioCtx);
-    this.engineSumNode.connect(this.equalizerProcessor.inputNode);
+    // ── 5. Spatial Audio Stage (Independent) ───────────────────────
+    this.spatialProcessor = new SpatialProcessor(audioCtx);
+    this.engineSumNode.connect(this.spatialProcessor.inputNode);
 
-    // ── Loudness Matching / A-B Gain Normalizer ─────────────────────
+    // ── 6. Advanced Equalizer Stage (Independent) ──────────────────
+    this.equalizerProcessor = new EqualizerProcessor(audioCtx);
+    this.spatialProcessor.outputNode.connect(this.equalizerProcessor.inputNode);
+
+    // ── 7. Loudness Normalizer / A-B Gain Matcher ──────────────────
     this.loudnessGain = audioCtx.createGain();
     this.loudnessGain.gain.value = 1.0;
     this.equalizerProcessor.outputNode.connect(this.loudnessGain);
+    this.loudnessGain.connect(this.masterWetGain);
 
-    // ── Master Output Stage ────────────────────────────────────────
+    // ── 8. Master Output Stage ─────────────────────────────────────
     this.masterGain = audioCtx.createGain();
     this.masterGain.gain.value = 1.0;
-    this.loudnessGain.connect(this.masterGain);
 
-    // ── Telemetry & Visualizer Analysers ───────────────────────────
+    // Both dry and wet paths sum into masterGain
+    this.masterDryGain.connect(this.masterGain);
+    this.masterWetGain.connect(this.masterGain);
+
+    // ── 9. Telemetry & Visualizer Analysers ────────────────────────
     this.analyser = audioCtx.createAnalyser();
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0.82;
@@ -90,18 +108,33 @@ export class AudioGraph {
     this.stereoSplitter.connect(this.analyserL, 0);
     this.stereoSplitter.connect(this.analyserR, 1);
 
-    // Connect Master Out to Audio Destination
+    // Final connection to hardware audio destination
     this.masterGain.connect(audioCtx.destination);
   }
 
   /**
-   * Updates all DSP and EQ parameters smoothly.
+   * Applies DSP, EQ, Spatial and Adaptive settings smoothly with AudioParam scheduling.
    */
-  applySettings(dspSettings, eqSettings) {
+  applySettings(dspSettings = {}, eqSettings = {}, adaptiveOffsets = {}) {
     const t = this.ctx.currentTime;
     const rampTime = 0.035;
 
-    // 1. Input Gain Stage
+    // 1. Overall Audio Processing Switch (Truth Table Master)
+    const overallOn = dspSettings.overallProcessingEnabled !== false;
+    if (t === 0) {
+      this.masterWetGain.gain.setValueAtTime(overallOn ? 1.0 : 0.0, 0);
+      this.masterDryGain.gain.setValueAtTime(overallOn ? 0.0 : 1.0, 0);
+    } else {
+      this.masterWetGain.gain.setTargetAtTime(overallOn ? 1.0 : 0.0, t, rampTime);
+      this.masterDryGain.gain.setTargetAtTime(overallOn ? 0.0 : 1.0, t, rampTime);
+    }
+
+    if (!overallOn) {
+      // 100% Bit-transparent native stream bypass
+      return;
+    }
+
+    // 2. Input Gain Stage
     const inDb = dspSettings.inputGain || 0;
     const inLin = Math.pow(10, inDb / 20);
     if (t === 0) {
@@ -110,36 +143,60 @@ export class AudioGraph {
       this.inputGainNode.gain.setTargetAtTime(inLin, t, rampTime);
     }
 
-    // 2. Engine Bypass Control
-    const engineOn = !!dspSettings.engineEnabled;
+    // 3. Sound Engine & Adaptive Track Intelligence Independence
+    const engineOn = !!(dspSettings.soundEngineEnabled ?? dspSettings.engineEnabled);
+    const adaptiveOn = !!dspSettings.adaptiveIntelligenceEnabled;
+    const engineChainActive = engineOn || adaptiveOn;
+
     if (t === 0) {
-      this.engineWetGain.gain.setValueAtTime(engineOn ? 1.0 : 0.0, 0);
-      this.engineDryGain.gain.setValueAtTime(engineOn ? 0.0 : 1.0, 0);
+      this.engineWetGain.gain.setValueAtTime(engineChainActive ? 1.0 : 0.0, 0);
+      this.engineDryGain.gain.setValueAtTime(engineChainActive ? 0.0 : 1.0, 0);
     } else {
-      this.engineWetGain.gain.setTargetAtTime(engineOn ? 1.0 : 0.0, t, rampTime);
-      this.engineDryGain.gain.setTargetAtTime(engineOn ? 0.0 : 1.0, t, rampTime);
+      this.engineWetGain.gain.setTargetAtTime(engineChainActive ? 1.0 : 0.0, t, rampTime);
+      this.engineDryGain.gain.setTargetAtTime(engineChainActive ? 0.0 : 1.0, t, rampTime);
     }
 
-    // 3. Resolve Intensity Multiplier
+    // 4. Resolve Intensity Multiplier
     const intensityKey = dspSettings.intensity || 'balanced';
     const intensityMultiplier = INTENSITY_MODES[intensityKey]?.multiplier ?? 1.0;
 
-    // 4. Resolve Device Profile Offsets
+    // 5. Resolve Device Profile Offsets
     const devId = dspSettings.deviceProfile || 'universal';
     const deviceProfile = DEVICE_PROFILES.find(d => d.id === devId) || DEVICE_PROFILES[0];
     const deviceOffsets = deviceProfile.offsets || {};
 
-    // 5. Update Engine Modules
-    if (engineOn) {
-      this.bassProcessor.updateParameters(dspSettings, intensityMultiplier, deviceOffsets);
-      this.vocalTrebleProcessor.updateParameters(dspSettings, intensityMultiplier, deviceOffsets);
-      this.spatialProcessor.updateParameters(dspSettings, intensityMultiplier, deviceOffsets);
-      this.dynamicsProcessor.updateParameters(dspSettings);
-      this.outputLimiter.updateParameters(dspSettings);
+    // 6. Compute Effective DSP parameters (Profile + Overrides + Bounded Adaptive Overlay)
+    if (engineChainActive) {
+      const effectiveDsp = { ...dspSettings };
 
-      // Perceived Loudness Alignment: Never squash volume
+      if (!engineOn && adaptiveOn) {
+        // Flat baseline when main sound engine is OFF but adaptive intelligence is ON
+        effectiveDsp.deepBass = 0;
+        effectiveDsp.bassPunch = 0;
+        effectiveDsp.vocalClarity = 0;
+        effectiveDsp.harshnessControl = 0;
+        effectiveDsp.crystalTreble = 0;
+        effectiveDsp.bassTexture = 0;
+        effectiveDsp.psychoacousticBass = false;
+      }
+
+      // Apply bounded adaptive offsets as a temporary acoustic overlay
+      if (adaptiveOn && adaptiveOffsets) {
+        effectiveDsp.deepBass = (effectiveDsp.deepBass ?? 2) + (adaptiveOffsets.deepBass ?? 0);
+        effectiveDsp.bassPunch = (effectiveDsp.bassPunch ?? 2) + (adaptiveOffsets.bassPunch ?? 0);
+        effectiveDsp.vocalClarity = (effectiveDsp.vocalClarity ?? 2) + (adaptiveOffsets.vocalClarity ?? 0);
+        effectiveDsp.harshnessControl = (effectiveDsp.harshnessControl ?? 1) - (adaptiveOffsets.harshnessDamping ?? 0);
+        effectiveDsp.crystalTreble = (effectiveDsp.crystalTreble ?? 2) + (adaptiveOffsets.trebleAir ?? 0);
+      }
+
+      this.bassProcessor.updateParameters(effectiveDsp, intensityMultiplier, deviceOffsets);
+      this.vocalTrebleProcessor.updateParameters(effectiveDsp, intensityMultiplier, deviceOffsets);
+      this.dynamicsProcessor.updateParameters(effectiveDsp);
+      this.outputLimiter.updateParameters(effectiveDsp);
+
+      // Perceived Loudness Normalization
       if (dspSettings.loudnessMatch) {
-        this.loudnessGain.gain.setTargetAtTime(0.92, t, rampTime); // Gentle -0.7 dB max if explicitly requested
+        this.loudnessGain.gain.setTargetAtTime(0.92, t, rampTime);
       } else {
         this.loudnessGain.gain.setTargetAtTime(1.0, t, rampTime);
       }
@@ -147,16 +204,21 @@ export class AudioGraph {
       this.loudnessGain.gain.setTargetAtTime(1.0, t, rampTime);
     }
 
-    // 6. Update Independent Equalizer
+    // 7. Spatial Audio Stage (Independent)
+    const spatialOn = !!(dspSettings.spatialEnabled || (engineOn && dspSettings.spatialMode && dspSettings.spatialMode !== 'stereo'));
+    const spatialConfig = {
+      ...dspSettings,
+      spatialMode: spatialOn ? (dspSettings.spatialMode || 'wide') : 'stereo',
+    };
+    this.spatialProcessor.updateParameters(spatialConfig, intensityMultiplier, deviceOffsets);
+
+    // 8. Equalizer Stage (Independent)
     this.equalizerProcessor.updateParameters(eqSettings);
   }
 
   /**
    * Computes stereo phase correlation coefficient r:
    * r = Sum(L * R) / sqrt(Sum(L^2) * Sum(R^2))
-   *   +1.0 = Pure mono / perfect correlation
-   *    0.0 = Wide decorrelated stereo
-   *   -1.0 = Severe phase cancellation (out-of-phase)
    */
   getPhaseCorrelation() {
     const bufferLength = this.analyserL.fftSize;
@@ -179,7 +241,7 @@ export class AudioGraph {
     }
 
     const denom = Math.sqrt(sumLL * sumRR);
-    if (denom < 1e-6) return 1.0; // Silence or near-zero signal
+    if (denom < 1e-6) return 1.0;
     return Math.max(-1.0, Math.min(1.0, sumLR / denom));
   }
 
@@ -206,9 +268,7 @@ export class AudioGraph {
   }
 
   /**
-   * Real-Time Bad Frequency & Noise Analyzer + Active Shield Monitoring
-   * Evaluates live spectrum FFT energy, detecting problem resonances,
-   * sibilance, boxy mud, ultrasonic noise, and stereo phase health.
+   * Live acoustic health and resonance detection.
    */
   getAcousticHealthAnalysis() {
     const bufferLength = this.analyser.frequencyBinCount;
@@ -229,7 +289,6 @@ export class AudioGraph {
 
     const subRumble = bandEnergy(10, 28);
     const lowMidMud = bandEnergy(200, 350);
-    const vocalMid  = bandEnergy(1000, 2600);
     const harshness = bandEnergy(3200, 4600);
     const sibilance = bandEnergy(6000, 8500);
     const hissNoise = bandEnergy(16500, 22000);
@@ -237,7 +296,6 @@ export class AudioGraph {
     const phase = this.getPhaseCorrelation();
     const peak = this.getPeakLevel();
 
-    // Scientific Acoustic Comfort Index (ISO 226 Ear-Canal Sensitivity Calibration)
     let comfortScore = 96;
     if (harshness > 0.65) comfortScore -= Math.min(22, Math.round((harshness - 0.65) * 55));
     if (sibilance > 0.68) comfortScore -= Math.min(18, Math.round((sibilance - 0.68) * 45));

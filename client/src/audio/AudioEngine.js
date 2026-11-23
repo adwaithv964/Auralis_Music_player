@@ -3,21 +3,18 @@
  * Singleton Controller for Auralis DSP Audio Engine.
  * 
  * Central coordinator for:
- *   - AudioContext lifecycle (user-gesture unlock, state transitions).
+ *   - AudioContext lifecycle (unlock, state recovery, resume).
  *   - Single MediaElementAudioSourceNode connection.
- *   - CORS detection and graceful fallback.
- *   - Preset management & localStorage persistence.
- *   - Real-time telemetry (phase correlation, peak levels, FFT spectrum).
+ *   - Single authoritative AudioSettingsStore integration.
+ *   - Real-time Adaptive Track Intelligence engine.
+ *   - Real-time telemetry, spectrum, and acoustic health analysis.
  */
 
-import { AudioGraph }             from './AudioGraph';
-import {
-  DEFAULT_DSP_SETTINGS,
-  DEFAULT_EQ_SETTINGS,
-  STORAGE_KEYS,
-} from './constants';
+import { AudioGraph }         from './AudioGraph';
+import { audioSettingsStore } from './AudioSettingsStore';
+import { TrackIntelligence }  from './TrackIntelligence';
 import { MASTER_PROFILES, EQ_PRESETS } from './presets';
-import { DEVICE_PROFILES }             from './deviceProfiles';
+import { DEVICE_PROFILES }    from './deviceProfiles';
 
 class AudioEngineController {
   constructor() {
@@ -26,47 +23,57 @@ class AudioEngineController {
     this.mediaSource = null;
     this.audioElement = null;
     this.initialized = false;
-    this.corsDegraded = false; // Flag if current track had to bypass Web Audio due to CORS restriction
+    this.corsDegraded = false;
 
-    // Load persisted or default settings
-    this.dspSettings = this._loadStorage(STORAGE_KEYS.DSP_SETTINGS, DEFAULT_DSP_SETTINGS);
-    this.eqSettings  = this._loadStorage(STORAGE_KEYS.EQ_SETTINGS,  DEFAULT_EQ_SETTINGS);
-    this.customEqPresets = this._loadStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, []);
+    // Single Authoritative Store & Adaptive Intelligence
+    this.store = audioSettingsStore;
+    this.trackIntelligence = new TrackIntelligence(this.store);
 
-    // Ensure customEqPresets is strictly an Array (heals any corrupted object in localStorage)
-    if (!Array.isArray(this.customEqPresets)) {
-      this.customEqPresets = [];
-      this._saveStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, []);
-    }
-
-    // Ensure loudnessMatch is disabled by default so volume is full and unattenuated
-    if (this.dspSettings.loudnessMatch) {
-      this.dspSettings.loudnessMatch = false;
-      this._saveStorage(STORAGE_KEYS.DSP_SETTINGS, this.dspSettings);
-    }
-
-    // Listeners for UI reactivity
+    // Subscribers for UI updates
     this.subscribers = new Set();
-  }
 
-  _loadStorage(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(fallback)) {
-          return Array.isArray(parsed) ? parsed : [...fallback];
-        }
-        return { ...fallback, ...parsed };
+    // Analysis interval ID
+    this.analysisTimer = null;
+
+    // Synchronize store updates to AudioGraph
+    this.store.subscribe(() => {
+      if (this.graph) {
+        this.graph.applySettings(
+          this.store.persistentPrefs,
+          this.getEqSettings(),
+          this.trackIntelligence.adaptiveOffsets
+        );
       }
-    } catch (_) {}
-    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+      this._notify();
+    });
   }
 
-  _saveStorage(key, data) {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (_) {}
+  // ── Backward-compatible Getters ──────────────────────────────────
+  get dspSettings() {
+    return {
+      ...this.store.persistentPrefs,
+      engineEnabled: this.store.persistentPrefs.soundEngineEnabled,
+    };
+  }
+
+  get eqSettings() {
+    return {
+      eqEnabled: this.store.persistentPrefs.eqEnabled,
+      activePreset: this.store.persistentPrefs.activeEqPreset,
+      bands: this.store.persistentPrefs.eqBands,
+    };
+  }
+
+  get customEqPresets() {
+    return this.store.persistentPrefs.customEqPresets;
+  }
+
+  getEqSettings() {
+    return {
+      eqEnabled: this.store.persistentPrefs.eqEnabled,
+      activePreset: this.store.persistentPrefs.activeEqPreset,
+      bands: this.store.persistentPrefs.eqBands,
+    };
   }
 
   subscribe(callback) {
@@ -75,8 +82,17 @@ class AudioEngineController {
   }
 
   _notify() {
+    const snap = this.store.getSnapshot();
     this.subscribers.forEach(cb => {
-      try { cb({ dsp: this.dspSettings, eq: this.eqSettings }); } catch (_) {}
+      try {
+        cb({
+          dsp: this.dspSettings,
+          eq: this.eqSettings,
+          adaptive: snap.adaptive,
+          runtime: snap.runtime,
+          prefs: snap.prefs,
+        });
+      } catch (_) {}
     });
   }
 
@@ -94,7 +110,6 @@ class AudioEngineController {
       audioElement.crossOrigin = 'anonymous';
     }
 
-    // Lazy instantiate AudioContext on demand
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
       console.warn('[Auralis DSP] Web Audio API is not supported in this browser.');
@@ -106,6 +121,13 @@ class AudioEngineController {
         latencyHint: 'playback',
       });
       this.graph = new AudioGraph(this.ctx);
+
+      // Listen for AudioContext state transitions (auto-resume)
+      this.ctx.onstatechange = () => {
+        this.store.updateRuntimeState({
+          audioContextState: this.ctx?.state || 'unknown',
+        });
+      };
     }
 
     // Connect MediaElement exactly once
@@ -119,8 +141,69 @@ class AudioEngineController {
       }
     }
 
-    // Apply initial settings
-    this.graph.applySettings(this.dspSettings, this.eqSettings);
+    // Start background real-time analysis loop
+    this._startAnalysisLoop();
+
+    // Apply persisted settings immediately
+    this.graph.applySettings(
+      this.store.persistentPrefs,
+      this.getEqSettings(),
+      this.trackIntelligence.adaptiveOffsets
+    );
+
+    this.store.updateRuntimeState({
+      audioContextState: this.ctx.state,
+      sampleRate: this.ctx.sampleRate,
+    });
+  }
+
+  /**
+   * Background analysis loop: processes live FFT spectrum for adaptive intelligence.
+   */
+  _startAnalysisLoop() {
+    if (this.analysisTimer) clearInterval(this.analysisTimer);
+
+    this.analysisTimer = setInterval(() => {
+      if (!this.graph || !this.ctx || this.ctx.state !== 'running') return;
+      if (!this.audioElement || this.audioElement.paused) return;
+
+      const offsets = this.trackIntelligence.processFrame(
+        this.graph.analyser,
+        this.ctx.sampleRate || 48000
+      );
+
+      // Smoothly apply adaptive offsets if adaptive intelligence is enabled
+      if (this.store.persistentPrefs.adaptiveIntelligenceEnabled && offsets) {
+        this.graph.applySettings(
+          this.store.persistentPrefs,
+          this.getEqSettings(),
+          offsets
+        );
+      }
+    }, 120);
+  }
+
+  /**
+   * Called when a track changes.
+   * GUARANTEE: User preferences and profiles NEVER reset!
+   * Only the per-track analysis resets for the new song.
+   */
+  onTrackChange(newTrack) {
+    this.trackIntelligence.resetForNewTrack(newTrack?.id);
+    this.store.updateRuntimeState({
+      trackId: newTrack?.id || null,
+      streamUrl: newTrack?.previewUrl || null,
+      mediaElementState: 'loading',
+      isBuffering: false,
+    });
+
+    if (this.graph) {
+      this.graph.applySettings(
+        this.store.persistentPrefs,
+        this.getEqSettings(),
+        this.trackIntelligence.adaptiveOffsets
+      );
+    }
   }
 
   /**
@@ -130,6 +213,7 @@ class AudioEngineController {
     if (this.ctx && this.ctx.state === 'suspended') {
       try {
         await this.ctx.resume();
+        this.store.updateRuntimeState({ audioContextState: 'running' });
       } catch (err) {
         console.warn('[Auralis DSP] AudioContext resume failed:', err.message);
       }
@@ -179,163 +263,90 @@ class AudioEngineController {
     if (playFn) playFn();
   }
 
-  /**
-   * Updates DSP settings and recalculates graph parameters.
-   */
+  // ── Setters & Controls (All routed to persistent store) ──────────
+
   updateDspSettings(updater) {
-    const next = typeof updater === 'function' ? updater(this.dspSettings) : { ...this.dspSettings, ...updater };
-    this.dspSettings = next;
-    this._saveStorage(STORAGE_KEYS.DSP_SETTINGS, next);
-    if (this.graph) {
-      this.graph.applySettings(this.dspSettings, this.eqSettings);
-    }
-    this._notify();
+    const next = typeof updater === 'function' ? updater(this.store.persistentPrefs) : updater;
+    this.store.updatePreferences(next);
   }
 
-  /**
-   * Updates Equalizer settings independently.
-   */
   updateEqSettings(updater) {
-    const next = typeof updater === 'function' ? updater(this.eqSettings) : { ...this.eqSettings, ...updater };
-    this.eqSettings = next;
-    this._saveStorage(STORAGE_KEYS.EQ_SETTINGS, next);
-    if (this.graph) {
-      this.graph.applySettings(this.dspSettings, this.eqSettings);
-    }
-    this._notify();
-  }
-
-  /**
-   * Activates one of the 17 professionally tuned sound profiles.
-   */
-  selectMasterProfile(profileId) {
-    const profile = MASTER_PROFILES.find(p => p.id === profileId);
-    if (!profile) return;
-
-    this.updateDspSettings(prev => ({
-      ...prev,
-      activeProfile: profileId,
-      ...profile.dsp,
-    }));
-  }
-
-  /**
-   * Changes engine intensity (Natural | Balanced | Powerful | Extreme).
-   */
-  setIntensity(intensityKey) {
-    this.updateDspSettings(prev => ({
-      ...prev,
-      intensity: intensityKey,
-    }));
-  }
-
-  /**
-   * Changes target device profile (Universal, Wired, Bluetooth, Over-Ear, Studio, Portable, Desktop).
-   */
-  setDeviceProfile(deviceKey) {
-    this.updateDspSettings(prev => ({
-      ...prev,
-      deviceProfile: deviceKey,
-    }));
-  }
-
-  /**
-   * Toggles Sound Engine master switch.
-   */
-  toggleEngine(forcedState) {
-    this.updateDspSettings(prev => ({
-      ...prev,
-      engineEnabled: forcedState !== undefined ? forcedState : !prev.engineEnabled,
-    }));
-  }
-
-  /**
-   * Toggles Equalizer switch.
-   */
-  toggleEqualizer(forcedState) {
-    this.updateEqSettings(prev => ({
-      ...prev,
-      eqEnabled: forcedState !== undefined ? forcedState : !prev.eqEnabled,
-    }));
-  }
-
-  /**
-   * Toggles Loudness Matching for objective A/B testing.
-   */
-  toggleLoudnessMatch() {
-    this.updateDspSettings(prev => ({
-      ...prev,
-      loudnessMatch: !prev.loudnessMatch,
-    }));
-  }
-
-  /**
-   * Applies an EQ Preset.
-   */
-  applyEqPreset(presetId) {
-    const preset = [...EQ_PRESETS, ...this.customEqPresets].find(p => p.id === presetId);
-    if (!preset) return;
-
-    this.updateEqSettings(prev => ({
-      ...prev,
-      activePreset: presetId,
-      bands: [...preset.bands],
-    }));
-  }
-
-  /**
-   * Updates an individual EQ frequency band (0 to 9).
-   */
-  setEqBand(bandIndex, gainDb) {
-    this.updateEqSettings(prev => {
-      const nextBands = [...prev.bands];
-      nextBands[bandIndex] = Math.max(-12, Math.min(12, Number(gainDb)));
-      return {
-        ...prev,
-        activePreset: 'custom',
-        bands: nextBands,
-      };
+    const currentEq = this.getEqSettings();
+    const next = typeof updater === 'function' ? updater(currentEq) : updater;
+    this.store.updatePreferences({
+      eqEnabled: next.eqEnabled !== undefined ? next.eqEnabled : currentEq.eqEnabled,
+      activeEqPreset: next.activePreset || currentEq.activePreset,
+      eqBands: next.bands || currentEq.bands,
     });
   }
 
-  /**
-   * Saves current EQ curve as a custom preset.
-   */
+  toggleOverallProcessing(forcedState) {
+    this.store.toggleOverallProcessing(forcedState);
+  }
+
+  toggleEngine(forcedState) {
+    this.store.toggleSoundEngine(forcedState);
+  }
+
+  toggleAdaptiveIntelligence(forcedState) {
+    this.store.toggleAdaptiveIntelligence(forcedState);
+  }
+
+  setAdaptiveIntensity(intensityKey) {
+    this.store.setAdaptiveIntensity(intensityKey);
+  }
+
+  toggleEqualizer(forcedState) {
+    this.store.toggleEqualizer(forcedState);
+  }
+
+  toggleSpatialAudio(forcedState) {
+    this.store.toggleSpatialAudio(forcedState);
+  }
+
+  selectMasterProfile(profileId) {
+    this.store.selectMasterProfile(profileId);
+  }
+
+  setIntensity(intensityKey) {
+    this.store.setIntensity(intensityKey);
+  }
+
+  setDeviceProfile(deviceKey) {
+    this.store.setDeviceProfile(deviceKey);
+  }
+
+  toggleLoudnessMatch() {
+    this.store.updatePreferences(prev => ({ loudnessMatch: !prev.loudnessMatch }));
+  }
+
+  applyEqPreset(presetId) {
+    const preset = [...EQ_PRESETS, ...this.store.persistentPrefs.customEqPresets].find(p => p.id === presetId);
+    if (!preset) return;
+    this.store.applyEqPreset(presetId, preset.bands);
+  }
+
+  setEqBand(bandIndex, gainDb) {
+    this.store.setEqBand(bandIndex, gainDb);
+  }
+
   saveCustomEqPreset(name) {
-    if (!name || !name.trim()) return;
-    const id = `custom_${Date.now()}`;
-    const newPreset = {
-      id,
-      name: name.trim(),
-      bands: [...this.eqSettings.bands],
-    };
-    const nextList = [...this.customEqPresets, newPreset];
-    this.customEqPresets = nextList;
-    this._saveStorage(STORAGE_KEYS.CUSTOM_EQ_PRESETS, nextList);
-    this.updateEqSettings(prev => ({ ...prev, activePreset: id }));
+    this.store.saveCustomEqPreset(name);
   }
 
-  /**
-   * Resets all DSP settings to factory Reference default.
-   */
   resetDspToDefault() {
-    this.updateDspSettings(() => ({ ...DEFAULT_DSP_SETTINGS }));
+    this.store.resetToDefaults();
   }
 
-  /**
-   * Resets Equalizer to flat curve.
-   */
   resetEqToFlat() {
-    this.updateEqSettings(() => ({
-      eqEnabled: this.eqSettings.eqEnabled, // Keep enabled state
-      activePreset: 'flat',
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    }));
+    this.store.updatePreferences({
+      activeEqPreset: 'flat',
+      eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    });
   }
 
-  /**
-   * Retrieves real-time telemetry (Peak, clipping, phase correlation, AudioContext stats).
-   */
+  // ── Real-time Telemetry & Diagnostics ─────────────────────────────
+
   getTelemetry() {
     if (!this.graph || !this.ctx) {
       return {
@@ -361,9 +372,6 @@ class AudioEngineController {
     };
   }
 
-  /**
-   * Real-Time Bad Frequency & Noise Analyzer Telemetry
-   */
   getAcousticHealthAnalysis() {
     if (!this.graph) {
       return {
@@ -380,9 +388,36 @@ class AudioEngineController {
     return this.graph.getAcousticHealthAnalysis();
   }
 
-  /**
-   * Analyzes source metadata for the Source Quality Information panel.
-   */
+  getStreamDiagnostics() {
+    const audio = this.audioElement;
+    let bufferHealth = 0;
+    if (audio && audio.buffered && audio.buffered.length > 0) {
+      const cur = audio.currentTime || 0;
+      for (let i = 0; i < audio.buffered.length; i++) {
+        if (audio.buffered.start(i) <= cur && cur <= audio.buffered.end(i)) {
+          bufferHealth = Math.max(0, audio.buffered.end(i) - cur);
+          break;
+        }
+      }
+    }
+
+    const snap = this.store.getSnapshot();
+    return {
+      streamStatus: audio ? (audio.paused ? 'Paused' : 'Streaming') : 'Idle',
+      bufferingStatus: snap.runtime.isBuffering ? 'Buffering' : 'Healthy',
+      bufferHealthSec: bufferHealth.toFixed(1),
+      audioEngineStatus: snap.prefs.overallProcessingEnabled
+        ? (snap.prefs.soundEngineEnabled ? 'Sound Engine Active' : 'Sound Engine Bypassed')
+        : '100% Native Bypass',
+      adaptiveAnalysisStatus: snap.adaptive.status,
+      currentSection: snap.adaptive.currentSection,
+      audioContextState: this.ctx?.state || 'uninitialized',
+      networkStatus: navigator.onLine ? 'Online' : 'Offline',
+      lastInterruption: snap.runtime.lastInterruption,
+      corsDegraded: this.corsDegraded,
+    };
+  }
+
   getSourceQuality(track) {
     const isSaavn = track?.sourceType === 'saavn' || track?.previewUrl?.includes('saavncdn');
     const isAudius = track?.sourceType === 'audius' || track?.previewUrl?.includes('/api/stream');
@@ -417,6 +452,7 @@ class AudioEngineController {
       provider = 'Verified YouTube Stream';
     }
 
+    const snap = this.store.getSnapshot();
     return {
       format,
       bitrate,
@@ -425,12 +461,14 @@ class AudioEngineController {
       dacSampleRate: `${this.ctx?.sampleRate ? (this.ctx.sampleRate / 1000).toFixed(1) : '48.0'} kHz`,
       provider,
       isLossless,
-      dspStatus: this.dspSettings.engineEnabled ? 'Active (Intelligent Enhancement)' : 'Bypassed (Original Source)',
-      eqStatus: this.eqSettings.eqEnabled ? 'Active (10-Band EQ)' : 'Bypassed',
+      dspStatus: snap.prefs.overallProcessingEnabled
+        ? (snap.prefs.soundEngineEnabled ? 'Active (Intelligent Enhancement)' : 'Bypassed')
+        : '100% Bit-Transparent Native Stream',
+      eqStatus: snap.prefs.eqEnabled ? 'Active (10-Band EQ)' : 'Bypassed',
       notice: 'Processing runs internally via 32-bit floating-point DSP. Floating-point processing enhances dynamics, spatiality and clarity without claiming lossy audio has become lossless.',
     };
   }
 }
 
-// Export singleton instance
+// Global Singleton
 export const audioEngine = new AudioEngineController();

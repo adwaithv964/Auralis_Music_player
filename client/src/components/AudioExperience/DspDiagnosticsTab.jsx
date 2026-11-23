@@ -1,6 +1,6 @@
 /**
  * audio/DspDiagnosticsTab.jsx
- * Interactive Synthetic DSP Validation Suite UI.
+ * Interactive Synthetic DSP Validation Suite & Live Stream Diagnostics UI.
  */
 
 import { useState, useEffect } from 'react';
@@ -10,16 +10,18 @@ import { useAudioEngineContext } from '../../audio/AudioEngineContext';
 export function DspDiagnosticsTab() {
   const [isRunning, setIsRunning] = useState(false);
   const [testResults, setTestResults] = useState(null);
-  const { getAcousticHealthAnalysis } = useAudioEngineContext();
+  const { getAcousticHealthAnalysis, getStreamDiagnostics } = useAudioEngineContext();
   const [healthData, setHealthData] = useState(() => getAcousticHealthAnalysis());
+  const [streamDiag, setStreamDiag] = useState(() => getStreamDiagnostics());
 
-  // Update live acoustic health telemetry every 300ms
+  // Update live acoustic health telemetry and stream diagnostics every 300ms
   useEffect(() => {
     const timer = setInterval(() => {
       setHealthData(getAcousticHealthAnalysis());
+      setStreamDiag(getStreamDiagnostics());
     }, 300);
     return () => clearInterval(timer);
-  }, [getAcousticHealthAnalysis]);
+  }, [getAcousticHealthAnalysis, getStreamDiagnostics]);
 
   const handleRunTests = async () => {
     setIsRunning(true);
@@ -35,6 +37,73 @@ export function DspDiagnosticsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* ── Playback Health & Stream Diagnostics Dashboard ── */}
+      <div className="dsp-card">
+        <div className="dsp-card-title">
+          <span>Stream Health & Playback Diagnostics</span>
+          <span style={{
+            fontSize: '0.68rem',
+            padding: '2px 8px',
+            borderRadius: 6,
+            background: streamDiag?.networkStatus === 'Online' ? 'rgba(103, 240, 183, 0.2)' : 'rgba(255, 77, 77, 0.2)',
+            color: streamDiag?.networkStatus === 'Online' ? '#67f0b7' : '#ff4d4d',
+            fontWeight: 700,
+          }}>
+            {streamDiag?.networkStatus || 'Online'}
+          </span>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+          gap: 10,
+          margin: '12px 0',
+        }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>Stream Status</span>
+            <strong style={{ fontSize: '0.85rem', color: '#f5f7ef' }}>{streamDiag?.streamStatus}</strong>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>Buffer Health</span>
+            <strong style={{ fontSize: '0.85rem', color: Number(streamDiag?.bufferHealthSec) > 3 ? '#67f0b7' : '#f59e0b' }}>
+              {streamDiag?.bufferHealthSec}s ahead
+            </strong>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>Audio Engine Mode</span>
+            <strong style={{ fontSize: '0.85rem', color: '#67f0b7' }}>{streamDiag?.audioEngineStatus}</strong>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>AudioContext State</span>
+            <strong style={{ fontSize: '0.85rem', color: streamDiag?.audioContextState === 'running' ? '#67f0b7' : '#f59e0b' }}>
+              {streamDiag?.audioContextState}
+            </strong>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>Adaptive Intelligence</span>
+            <strong style={{ fontSize: '0.85rem', color: '#67f0b7' }}>{streamDiag?.adaptiveAnalysisStatus}</strong>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 10, borderRadius: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: '#88928a', display: 'block' }}>Current Section</span>
+            <strong style={{ fontSize: '0.85rem', color: '#f5f7ef' }}>{streamDiag?.currentSection}</strong>
+          </div>
+        </div>
+
+        {streamDiag?.lastInterruption && (
+          <div style={{
+            background: 'rgba(255, 170, 0, 0.08)',
+            border: '1px solid rgba(255, 170, 0, 0.25)',
+            padding: '8px 12px',
+            borderRadius: 6,
+            fontSize: '0.75rem',
+            color: '#f59e0b',
+          }}>
+            Last Interruption [{streamDiag.lastInterruption.time}]: {streamDiag.lastInterruption.reason} ({streamDiag.lastInterruption.category}) — {streamDiag.lastInterruption.recovered ? 'Recovered ✓' : 'Resolving'}
+          </div>
+        )}
+      </div>
+
+      {/* ── Automated Synthetic DSP Validation Test Suite ── */}
       <div className="dsp-card">
         <div className="dsp-card-title">
           <span>Automated Synthetic DSP Validation Test Suite</span>
@@ -202,51 +271,25 @@ export function DspDiagnosticsTab() {
             </span>
           </div>
 
-          {/* Ultrasonic Noise & Hiss */}
+          {/* Ultrasonic Noise */}
           <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Ultrasonic Noise (&gt; 16.5 kHz)</span>
+              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Ultrasonic Noise (&gt; 18 kHz)</span>
               <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>FILTERED</span>
             </div>
             <span style={{ fontSize: '0.74rem', color: '#a9b1aa', display: 'block' }}>
-              {healthData?.ultrasonicNoise?.shieldStatus || '18.5 kHz Denoise Filter Active'}
+              {healthData?.ultrasonicNoise?.shieldStatus || '18.5 kHz Ultrasonic Filter Active'}
             </span>
           </div>
 
-          {/* Phase Correlation & Mono Compatibility */}
+          {/* Stereo Phase Correlation */}
           <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Stereo Phase Health</span>
-              <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>
-                {healthData?.phaseCorrelation?.status || '100% MONO COMPATIBLE'}
-              </span>
+              <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>r = {healthData?.phaseCorrelation?.value || '1.00'}</span>
             </div>
             <span style={{ fontSize: '0.74rem', color: '#a9b1aa', display: 'block' }}>
-              Correlation r = {healthData?.phaseCorrelation?.value || '1.00'} (Zero Mono Cancellation)
-            </span>
-          </div>
-
-          {/* Speaker Hardware Protection */}
-          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Speaker Excursion Guard</span>
-              <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>ACTIVE</span>
-            </div>
-            <span style={{ fontSize: '0.74rem', color: '#a9b1aa', display: 'block' }}>
-              {healthData?.speakerProtection?.status || 'Thermal & Mechanical Excursion Limiter Active'}
-            </span>
-          </div>
-
-          {/* SafeListen™ Human Hearing Comfort Index */}
-          <div style={{ background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(103, 240, 183, 0.25)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f5f7ef' }}>SafeListen™ Comfort Index</span>
-              <span style={{ fontSize: '0.72rem', color: '#67f0b7', fontWeight: 700 }}>
-                {healthData?.acousticComfort?.score ?? 98}% SAFE
-              </span>
-            </div>
-            <span style={{ fontSize: '0.74rem', color: '#67f0b7', display: 'block' }}>
-              {healthData?.acousticComfort?.rating || 'All-Day Safe (4+ Hours)'} · ISO 226 Ear Guard Active
+              {healthData?.phaseCorrelation?.status || 'Pure Stereo Phase Alignment'}
             </span>
           </div>
         </div>

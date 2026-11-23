@@ -22,6 +22,7 @@ export function AudioExperienceModal() {
     setActiveTab,
     dspSettings,
     eqSettings,
+    toggleOverallProcessing,
     toggleEngine,
     toggleEqualizer,
     toggleLoudnessMatch,
@@ -33,14 +34,16 @@ export function AudioExperienceModal() {
 
   if (!isModalOpen) return null;
 
+  const overallOn = dspSettings.overallProcessingEnabled !== false;
+
   const TABS = [
     { id: 'engine',     label: '🎧 Sound Engine',    badge: dspSettings.engineEnabled ? 'ON' : null },
     { id: 'equalizer',  label: '🎚️ Equalizer',       badge: eqSettings.eqEnabled ? 'ON' : null },
-    { id: 'spatial',    label: '🌐 Spatial Audio',   badge: null },
+    { id: 'spatial',    label: '🌐 Spatial Audio',   badge: dspSettings.spatialEnabled ? 'ON' : null },
     { id: 'devices',    label: '📱 Devices',         badge: null },
     { id: 'advanced',   label: '⚙️ Advanced DSP',    badge: null },
     { id: 'quality',    label: 'ℹ️ Source Quality',  badge: null },
-    { id: 'validation', label: '🧪 DSP Diagnostics', badge: 'TESTS' },
+    { id: 'validation', label: '🧪 Diagnostics & Tests', badge: 'TESTS' },
   ];
 
   return (
@@ -59,8 +62,23 @@ export function AudioExperienceModal() {
             </div>
           </div>
 
-          {/* Master Engine & Equalizer Switches */}
+          {/* Master Overall, Sound Engine & Equalizer Switches */}
           <div className="dsp-header-switches">
+            <div
+              className={`dsp-switch-card${overallOn ? ' active' : ''}`}
+              title="Truth Table Master: When OFF, delivers 100% bit-transparent native stream with all DSP bypassed"
+            >
+              <span>Overall Processing</span>
+              <button
+                className={`dsp-toggle${overallOn ? ' dsp-toggle--on' : ''}`}
+                role="switch"
+                aria-checked={overallOn}
+                onClick={() => toggleOverallProcessing()}
+              >
+                <span className="dsp-toggle-knob" />
+              </button>
+            </div>
+
             <div className={`dsp-switch-card${dspSettings.engineEnabled ? ' active' : ''}`}>
               <span>Sound Engine</span>
               <button
@@ -100,18 +118,28 @@ export function AudioExperienceModal() {
         {/* ── Status Strip: Active Profile, Device & A/B Comparison ── */}
         <div className="dsp-status-strip">
           <div className="dsp-status-tags">
-            <div className="dsp-tag">
-              <span>Profile:</span>
-              <span className="dsp-tag-pill dsp-tag-pill--accent">{activeProfileData.name}</span>
-            </div>
-            <div className="dsp-tag">
-              <span>Device:</span>
-              <span className="dsp-tag-pill">{activeDeviceData.icon} {activeDeviceData.name}</span>
-            </div>
-            <div className="dsp-tag">
-              <span>Spatial:</span>
-              <span className="dsp-tag-pill">{dspSettings.spatialMode.toUpperCase()}</span>
-            </div>
+            {!overallOn ? (
+              <div className="dsp-tag">
+                <span className="dsp-tag-pill" style={{ background: '#f59e0b', color: '#000', fontWeight: 700 }}>
+                  100% BIT-TRANSPARENT NATIVE STREAM (BYPASSED)
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="dsp-tag">
+                  <span>Profile:</span>
+                  <span className="dsp-tag-pill dsp-tag-pill--accent">{activeProfileData.name}</span>
+                </div>
+                <div className="dsp-tag">
+                  <span>Device:</span>
+                  <span className="dsp-tag-pill">{activeDeviceData.icon} {activeDeviceData.name}</span>
+                </div>
+                <div className="dsp-tag">
+                  <span>Spatial:</span>
+                  <span className="dsp-tag-pill">{dspSettings.spatialMode.toUpperCase()}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* A/B Loudness-Matched Comparison Toggle */}

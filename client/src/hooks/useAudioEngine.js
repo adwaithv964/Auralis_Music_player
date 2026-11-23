@@ -13,7 +13,7 @@ export function useAudioEngine(currentTrack, preferences) {
   const [elapsed,   setElapsed]   = useState(0);
   const [duration,  setDuration]  = useState(0);
   const pendingSrc = useRef(null); // track which src we're loading
-  const retryWithoutCors = useRef(false);
+  const retryAttempts = useRef(0);
 
   // Wire all audio events and initialize DSP audio graph exactly once
   useEffect(() => {
@@ -28,69 +28,117 @@ export function useAudioEngine(currentTrack, preferences) {
       setElapsed(Math.floor(cur));
       setDuration(isNaN(dur) || !isFinite(dur) ? 0 : Math.floor(dur));
       setProgress(dur > 0 ? (cur / dur) * 100 : 0);
+
+      // Buffer recovery: clear buffering state when time advances
+      audioEngine.store.updateRuntimeState({
+        isBuffering: false,
+        mediaElementState: audio.paused ? 'paused' : 'playing',
+      });
     };
-    const onPlay    = () => {
+
+    const onPlay = () => {
       setIsPlaying(true);
       audioEngine.resume();
+      audioEngine.store.updateRuntimeState({
+        mediaElementState: 'playing',
+        isBuffering: false,
+      });
     };
-    const onPause   = () => setIsPlaying(false);
-    const onEnded   = () => { setIsPlaying(false); setProgress(100); };
-    const onError   = (e) => {
-      console.warn('[Audio error]', e.target?.error?.code, e.target?.error?.message);
-      // Graceful CORS fallback: If an external stream does not permit CORS, retry with native playback
-      if (audio.crossOrigin === 'anonymous' && !retryWithoutCors.current && pendingSrc.current) {
-        console.warn('[AudioEngine] Stream CORS blocked by provider. Falling back to native playback mode...');
-        retryWithoutCors.current = true;
-        audioEngine.corsDegraded = true;
-        audio.crossOrigin = null;
-        audio.src = pendingSrc.current;
-        audio.load();
-        audio.play().catch(err => console.warn('[CORS fallback play error]', err.message));
-        return;
-      }
-      setIsPlaying(false);
-    };
-    const onWaiting = () => console.info('[Audio waiting] buffering…');
 
-    // ── Stall recovery: reload the src (triggers a fresh stream redirect) ──
-    let stallTimer = null;
+    const onPause = () => {
+      setIsPlaying(false);
+      audioEngine.store.updateRuntimeState({
+        mediaElementState: 'paused',
+      });
+    };
+
+    const onEnded = () => {
+      setIsPlaying(false);
+      setProgress(100);
+      audioEngine.store.updateRuntimeState({
+        mediaElementState: 'ended',
+        isBuffering: false,
+      });
+    };
+
+    const onError = (e) => {
+      const errCode = e.target?.error?.code;
+      const errMsg = e.target?.error?.message || 'Media decode or stream error';
+      console.warn('[Audio error]', errCode, errMsg);
+
+      audioEngine.store.recordInterruption(errMsg, 'stream_error');
+      setIsPlaying(false);
+
+      // Safe bounded retry for transient network dropouts without destroying CORS
+      if (retryAttempts.current < 2 && pendingSrc.current && !audio.paused) {
+        retryAttempts.current += 1;
+        const curTime = audio.currentTime || 0;
+        console.warn(`[AudioEngine] Attempting safe stream retry (${retryAttempts.current}/2)...`);
+        setTimeout(() => {
+          if (pendingSrc.current) {
+            audio.src = pendingSrc.current;
+            audio.load();
+            audio.currentTime = curTime;
+            audio.play().then(() => {
+              audioEngine.store.markInterruptionRecovered();
+            }).catch(() => {});
+          }
+        }, 1200);
+      }
+    };
+
+    const onWaiting = () => {
+      audioEngine.store.updateRuntimeState({
+        isBuffering: true,
+        mediaElementState: 'buffering',
+      });
+    };
+
+    const onPlaying = () => {
+      audioEngine.store.updateRuntimeState({
+        isBuffering: false,
+        mediaElementState: 'playing',
+      });
+      audioEngine.store.markInterruptionRecovered();
+    };
+
+    // Non-destructive stall handler: tracks network buffering without flushing cache
     const onStall = () => {
-      console.warn('[Audio stall] network stall on', audio.src?.slice(-60));
-      clearTimeout(stallTimer);
-      // Give it 4 seconds before forcing a reload
-      stallTimer = setTimeout(() => {
-        if (audio.paused) return; // user paused — don't reload
-        const currentSrc  = audio.src;
-        const currentTime = audio.currentTime || 0;
-        console.warn('[Audio stall] forcing reload of', currentSrc?.slice(-60));
-        const onCanPlayAfterStall = () => {
-          audio.removeEventListener('canplay', onCanPlayAfterStall);
-          // Seek back to where we were (best-effort; CDN URLs reset to 0)
-          try { if (currentTime > 2) audio.currentTime = currentTime; } catch (_) {}
-          audio.play().catch(e => console.warn('[stall-recovery play]', e.message));
-        };
-        audio.addEventListener('canplay', onCanPlayAfterStall);
-        audio.load();
-      }, 4000);
+      audioEngine.store.updateRuntimeState({
+        isBuffering: true,
+        mediaElementState: 'buffering',
+      });
+    };
+
+    // Auto-resume AudioContext on browser tab visibility / focus
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !audio.paused) {
+        audioEngine.resume();
+      }
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('play',       onPlay);
+    audio.addEventListener('playing',    onPlaying);
     audio.addEventListener('pause',      onPause);
     audio.addEventListener('ended',      onEnded);
     audio.addEventListener('error',      onError);
     audio.addEventListener('stalled',    onStall);
     audio.addEventListener('waiting',    onWaiting);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
 
     return () => {
-      clearTimeout(stallTimer);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('play',       onPlay);
+      audio.removeEventListener('playing',    onPlaying);
       audio.removeEventListener('pause',      onPause);
       audio.removeEventListener('ended',      onEnded);
       audio.removeEventListener('error',      onError);
       audio.removeEventListener('stalled',    onStall);
       audio.removeEventListener('waiting',    onWaiting);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onVisibilityChange);
     };
   }, []);
 
@@ -104,14 +152,16 @@ export function useAudioEngine(currentTrack, preferences) {
     const audio = audioRef.current;
     const src   = currentTrack.previewUrl;
 
+    // Inform AudioEngine of track change (resets adaptive analysis; preserves ALL user preferences)
+    audioEngine.onTrackChange(currentTrack);
+
     // Skip if the src hasn't actually changed (e.g. metadata-only update)
     if (audio.src && (audio.src === src || audio.src.endsWith(src))) return;
 
     pendingSrc.current = src;
-    retryWithoutCors.current = false;
-    audioEngine.corsDegraded = false;
+    retryAttempts.current = 0;
 
-    // Ensure crossOrigin is anonymous by default for DSP processing
+    // Ensure crossOrigin remains anonymous for Web Audio processing
     if (audio.crossOrigin !== 'anonymous') {
       audio.crossOrigin = 'anonymous';
     }
@@ -119,15 +169,15 @@ export function useAudioEngine(currentTrack, preferences) {
     const wasPlaying = !audio.paused;
     audio.pause();
 
-    // Clear old state
+    // Clear old playback counters
     setProgress(0);
     setElapsed(0);
     setDuration(0);
     setIsPlaying(false);
 
-    // Use canplay event to start once the new src is buffered enough
+    // Use canplay event to start once the new stream has buffered
     const onCanPlay = () => {
-      if (pendingSrc.current !== src) return; // stale
+      if (pendingSrc.current !== src) return;
       audio.removeEventListener('canplay', onCanPlay);
       if (wasPlaying) {
         audioEngine.resume();
@@ -136,13 +186,13 @@ export function useAudioEngine(currentTrack, preferences) {
     };
 
     audio.addEventListener('canplay', onCanPlay);
-    audio.src  = src;
+    audio.src = src;
     audio.load();
 
     return () => {
       audio.removeEventListener('canplay', onCanPlay);
     };
-  }, [currentTrack?.previewUrl]); // ONLY re-run when the URL changes, not the whole track object
+  }, [currentTrack?.previewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Volume sync
   useEffect(() => {
@@ -154,7 +204,6 @@ export function useAudioEngine(currentTrack, preferences) {
     if (!audio.src) return;
     audioEngine.resume();
     const doPlay = () => audio.play().catch(e => console.warn('[play]', e.message));
-    // If still loading, wait for canplay then trigger
     if (audio.readyState < 2) {
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);
