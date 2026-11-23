@@ -83,7 +83,7 @@ export const DEFAULT_DSP_SETTINGS = {
   spatialDepth: 0.35,             // 0.0 to 1.0
 
   // Multiband Dynamics (Mastering Headroom & Dynamic Preservation)
-  multibandEnabled: true,
+  multibandEnabled: false, // Default false for pure uncompressed True Bass
   dynamicRangePreservation: true, // Gentle transparent ratio vs heavy squash
   bassCompression: 1.8,           // Low-band peak containment (gentle)
   masterPunch: 1.25,              // Transient impact multiplier

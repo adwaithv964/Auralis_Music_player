@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp }        from './context/AppContext';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 import { Sidebar }       from './components/Sidebar/Sidebar';
 import { NowPlaying }    from './components/NowPlaying/NowPlaying';
@@ -22,6 +23,8 @@ const NAV_COLL = 62;    // px — sidebar collapsed (icon-only) width
 export function AppShell() {
   const { view, showPrefs, setShowPrefs, prefs, setPrefs, navigateBack } = useApp();
 
+  // ── Global Keyboard Shortcuts ───────────────────────────────
+  useKeyboardShortcuts();
 
   // ── Left sidebar collapse ────────────────────────────────────
   const [collapsed, setCollapsed] = useState(false);

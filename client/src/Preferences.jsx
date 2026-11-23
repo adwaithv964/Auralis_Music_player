@@ -76,6 +76,7 @@ export function Preferences({ prefs, setPrefs, onClose }) {
   const TABS = [
     { id: 'appearance', label: '🎨 Appearance', icon: '🎨' },
     { id: 'playback',   label: '▶ Playback',   icon: '▶' },
+    { id: 'shortcuts',  label: '⌨️ Shortcuts',  icon: '⌨️' },
     { id: 'quality',    label: '📶 Quality',    icon: '📶' },
     { id: 'privacy',    label: '🔒 Privacy',    icon: '🔒' },
   ];
@@ -305,6 +306,62 @@ export function Preferences({ prefs, setPrefs, onClose }) {
                   checked={prefs.crossfade}
                   onChange={v => set('crossfade', v)}
                 />
+              </PrefSection>
+            </>
+          )}
+
+          {/* ── SHORTCUTS ── */}
+          {activeTab === 'shortcuts' && (
+            <>
+              <PrefSection title="Playback & Navigation">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    { key: 'Space / K', desc: 'Play / Pause toggle' },
+                    { key: 'N / Shift + →', desc: 'Next track' },
+                    { key: 'P / Shift + ←', desc: 'Previous track' },
+                    { key: 'S', desc: 'Toggle Shuffle mode' },
+                    { key: 'R', desc: 'Toggle Repeat mode' },
+                    { key: '→ / ←', desc: 'Seek forward / backward 5 seconds' },
+                  ].map(sc => (
+                    <div key={sc.key} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.06)'
+                    }}>
+                      <span style={{ fontSize: '0.85rem', color: '#f5f7ef' }}>{sc.desc}</span>
+                      <kbd style={{
+                        background: 'rgba(103, 240, 183, 0.15)', border: '1px solid rgba(103, 240, 183, 0.35)',
+                        borderRadius: 6, padding: '3px 8px', fontSize: '0.78rem', color: '#67f0b7', fontWeight: 600,
+                        fontFamily: 'monospace'
+                      }}>{sc.key}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </PrefSection>
+
+              <PrefSection title="Sound Engine & Audio Experience">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    { key: 'D', desc: 'Open / Close Auralis Audio Experience (DSP Studio)' },
+                    { key: '↑ (Arrow Up)', desc: 'Increase Volume by 5%' },
+                    { key: '↓ (Arrow Down)', desc: 'Decrease Volume by 5%' },
+                    { key: 'M', desc: 'Mute / Unmute Volume' },
+                    { key: 'Esc', desc: 'Close any open modal or panel' },
+                  ].map(sc => (
+                    <div key={sc.key} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.06)'
+                    }}>
+                      <span style={{ fontSize: '0.85rem', color: '#f5f7ef' }}>{sc.desc}</span>
+                      <kbd style={{
+                        background: 'rgba(103, 240, 183, 0.15)', border: '1px solid rgba(103, 240, 183, 0.35)',
+                        borderRadius: 6, padding: '3px 8px', fontSize: '0.78rem', color: '#67f0b7', fontWeight: 600,
+                        fontFamily: 'monospace'
+                      }}>{sc.key}</kbd>
+                    </div>
+                  ))}
+                </div>
               </PrefSection>
             </>
           )}

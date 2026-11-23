@@ -130,7 +130,7 @@ export class AudioSettingsStore {
       trebleDetail: DEFAULT_DSP_SETTINGS.trebleDetail ?? 1.8,
 
       // Dynamics & Headroom
-      multibandEnabled: true,
+      multibandEnabled: false, // Default false for pure uncompressed True Bass
       dynamicRangePreservation: true,
       bassCompression: 1.8,
       masterPunch: 1.25,
@@ -268,11 +268,18 @@ export class AudioSettingsStore {
     const profile = MASTER_PROFILES.find(p => p.id === profileId);
     if (!profile) return;
 
+    // Preserve user's multibandEnabled preference across profile switches
+    const currentMultiband = this.persistentPrefs.multibandEnabled;
+    const currentHearingProtection = this.persistentPrefs.hearingProtection;
+
     this.persistentPrefs = {
       ...this.persistentPrefs,
       activeProfile: profileId,
       userOverrides: {}, // Reset custom overrides when a new signature profile is chosen
       ...profile.dsp,
+      // Preserve user choice: never force multiband compression on profile switch
+      multibandEnabled: currentMultiband !== undefined ? currentMultiband : false,
+      hearingProtection: currentHearingProtection !== undefined ? currentHearingProtection : true,
     };
     this._savePersistentPreferences();
     this.notify();
